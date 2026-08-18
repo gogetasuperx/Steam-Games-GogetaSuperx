@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GogetaSuperx Steam Curator Reviews</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        .card { background: #1e293b; border-radius: 8px; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; }
+        .card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); }
+        .badge-recommended { background: #22c55e; color: white; }
+        .badge-informational { background: #3b82f6; color: white; }
+        .badge-not-recommended { background: #ef4444; color: white; }
+    </style>
+</head>
+<body class="min-h-screen">
+    <header class="bg-slate-900 border-b border-slate-800 py-6 shadow-lg">
+        <div class="container mx-auto px-4">
+            <h1 class="text-3xl font-bold text-blue-400 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                GogetaSuperx Curator Reviews
+            </h1>
+            <p class="text-slate-400 mt-1">Latest games reviewed on Steam</p>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-8">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {% for game in games %}
+            <a href="game_{{ game.appid }}.html" class="card block">
+                <div class="relative">
+                    <img src="{{ game.header_image }}" alt="{{ game.name }}" class="w-full h-48 object-cover bg-slate-700">
+                    {% if game.review_type == 'Recommended' %}
+                        <span class="badge-recommended absolute top-2 right-2 text-xs px-2 py-1 rounded-full font-bold shadow">Recommended</span>
+                    {% elif game.review_type == 'Informational' %}
+                        <span class="badge-informational absolute top-2 right-2 text-xs px-2 py-1 rounded-full font-bold shadow">Info</span>
+                    {% elif game.review_type == 'Not Recommended' %}
+                        <span class="badge-not-recommended absolute top-2 right-2 text-xs px-2 py-1 rounded-full font-bold shadow">Not Recommended</span>
+                    {% endif %}
+                </div>
+                <div class="p-4">
+                    <h2 class="text-lg font-semibold truncate mb-1">{{ game.name }}</h2>
+                    <p class="text-slate-400 text-sm line-clamp-2">{{ game.curator_desc }}</p>
+                    <p class="text-xs text-slate-500 mt-3">{{ game.release_date }}</p>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </main>
+</body>
+</html>
