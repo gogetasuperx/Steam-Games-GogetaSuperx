@@ -60,9 +60,11 @@
             <div class="lg:col-span-1">
                 <div class="bg-slate-800 p-6 rounded-lg sticky top-24 shadow-lg border border-slate-700">
                     <h3 class="text-xl font-bold mb-6 text-center border-b border-slate-700 pb-4">Quick Links</h3>
+                    
                     {% if game.yt_id %}
                     <a href="https://www.youtube.com/watch?v={{ game.yt_id }}" target="_blank" class="btn btn-youtube">▶ Watch on YouTube</a>
                     {% endif %}
+                    
                     <a href="https://store.steampowered.com/app/{{ game.appid }}/" target="_blank" class="btn btn-steam">Steam Store Page</a>
                     <a href="https://steamdb.info/app/{{ game.appid }}/info/" target="_blank" class="btn btn-steamdb">SteamDB Info</a>
                     <a href="https://store.steampowered.com/curator/44917508/" target="_blank" class="btn btn-curator">Curator Profile</a>
@@ -88,4 +90,21 @@
                     {% if game.screenshots %}
                     <div class="mt-6 border-t border-slate-700 pt-6">
                         <h4 class="text-sm font-bold text-slate-200 mb-3">Screenshots</h4>
-                        <div class="grid grid-cols-2 gap-
+                        <div class="grid grid-cols-2 gap-2">
+                            {% for shot in game.screenshots %}
+                            <img src="{{ shot }}" alt="Screenshot" class="rounded border border-slate-700 w-full">
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="mt-6 bg-slate-900 p-4 rounded-lg text-sm italic text-slate-300 border border-slate-700">
+                        <p class="text-blue-400 font-semibold not-italic mb-1">Curator Note:</p>
+                        {{ game.curator_desc }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>
