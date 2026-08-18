@@ -22,7 +22,6 @@ def get_yt_id(url):
 
 def fetch_curator_reviews():
     games = []
-    # Fetch up to 5 pages (your latest ~50 reviews)
     for page in range(1, 6): 
         url = f"{CURATOR_URL}?p={page}"
         print(f"Fetching curator reviews page {page}...")
@@ -61,7 +60,7 @@ def fetch_curator_reviews():
                         
                 games.append({'appid': appid, 'curator_desc': curator_desc, 'yt_link': yt_link, 'review_type': review_type})
             
-            time.sleep(3) # Be polite to Steam so they don't block page 2, 3, etc.
+            time.sleep(3)
         except Exception as e:
             print(f"Error fetching curator page {page}: {e}")
             continue
@@ -121,12 +120,25 @@ def fetch_steam_data(appid):
         date_div = soup.find('div', class_='date')
         release_date = date_div.get_text(strip=True) if date_div else "Unknown"
 
+        # FIXED PRICE LOGIC
         price = ""
-        price_el = soup.find('div', class_='game_purchase_price') or soup.find('div', class_='discount_final_price')
-        if price_el: price = price_el.get_text(strip=True)
-        if not price:
+        price_el = soup.find('div', class_='game_purchase_price')
+        if not price_el: price_el = soup.find('div', class_='discount_final_price')
+        
+        if price_el:
+            price = price_el.get_text(strip=True)
+        else:
             purchase = soup.find('div', class_='game_area_purchase')
-            if purchase: price = purchase.get_text(" ", strip=True)[:60]
+            if purchase:
+                text = purchase.get_text(" ", strip=True).lower()
+                if 'coming soon' in text or 'not yet available' in text or 'planned release' in text:
+                    price = "Coming Soon"
+                elif 'free to play' in text or 'play game' in text:
+                    price = "Free"
+                elif 'download demo' in text:
+                    price = "Demo Available"
+                else:
+                    price = "See Steam"
 
         return {
             'name': name, 'description': desc_html, 'short_desc': short_desc,
@@ -158,7 +170,7 @@ def build_site(games):
             steam_data = fetch_steam_data(appid)
             if steam_data:
                 with open(json_path, 'w') as f: json.dump(steam_data, f)
-            time.sleep(1.5) # Polite delay for Steam store pages
+            time.sleep(1.5)
 
         if not steam_data: continue
 
@@ -178,9 +190,6 @@ def build_site(games):
         site_games.append(game_info)
         game_tpl.stream(game=game_info).dump(os.path.join(OUTPUT_DIR, f"game_{appid}.html"))
 
-    # REMOVED THE SORT BY APPID
-    # Now it preserves the exact chronological order from your Steam Curator page!
-    
     index_tpl.stream(games=site_games).dump(os.path.join(OUTPUT_DIR, "index.html"))
     print("Site generation complete.")
 
