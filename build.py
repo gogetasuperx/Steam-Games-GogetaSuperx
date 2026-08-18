@@ -2,6 +2,7 @@ import os
 import re
 import json
 import time
+import base64
 import requests
 import yt_dlp
 from bs4 import BeautifulSoup
@@ -23,13 +24,21 @@ def get_yt_id(url):
     elif 'youtube.com/watch?v=' in url: return url.split('v=')[1].split('&')[0]
     return None
 
+def _vid_timestamp(vid):
+    # YouTube video IDs contain a hidden upload timestamp in their first characters
+    try:
+        raw = base64.urlsafe_b64decode(vid[:6] + '==')
+        return int.from_bytes(raw[:4], 'big') >> 4
+    except Exception:
+        return 0
+
 def fetch_playlist_videos():
     videos = []
     playlist_url = f"https://www.youtube.com/playlist?list={PLAYLIST_ID}"
     ydl_opts = {
         'quiet': True,
-        'extract_flat': True, # Just get metadata, don't download videos
-        'playlistend': 48,    # Limit to 48 videos
+        'extract_flat': True,
+        'playlistend': 200, # Grab enough videos so we don't miss new ones
     }
     try:
         print("Fetching playlist via yt-dlp...")
@@ -37,18 +46,21 @@ def fetch_playlist_videos():
             info = ydl.extract_info(playlist_url, download=False)
             if 'entries' in info:
                 for entry in info['entries']:
-                    if entry:
-                        length = entry.get('duration_string', '')
-                        if not length and entry.get('duration'):
-                            mins, secs = divmod(int(entry['duration']), 60)
-                            length = f"{mins}:{secs:02d}"
-                        
-                        videos.append({
-                            'video_id': entry.get('id'),
-                            'title': entry.get('title', 'Untitled'),
-                            'length': length
-                        })
-        print(f"Found {len(videos)} playlist videos.")
+                    if not entry: continue
+                    length = entry.get('duration_string', '')
+                    if not length and entry.get('duration'):
+                        mins, secs = divmod(int(entry['duration']), 60)
+                        length = f"{mins}:{secs:02d}"
+                    videos.append({
+                        'video_id': entry.get('id'),
+                        'title': entry.get('title', 'Untitled'),
+                        'length': length,
+                        'ts': entry.get('timestamp') or 0
+                    })
+        # Sort NEWEST FIRST using upload timestamp
+        videos.sort(key=lambda v: (v.get('ts') or _vid_timestamp(v.get('video_id', ''))), reverse=True)
+        videos = videos[:48] # Show the 48 most recent
+        print(f"Found {len(videos)} playlist videos (newest first).")
     except Exception as e:
         print(f"yt-dlp error: {e}")
     return videos
