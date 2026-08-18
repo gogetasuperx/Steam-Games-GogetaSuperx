@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import requests
@@ -7,6 +8,7 @@ from jinja2 import Environment, FileSystemLoader
 
 CURATOR_ID = "44917508"
 CURATOR_URL = f"https://store.steampowered.com/curator/{CURATOR_ID}/"
+PLAYLIST_ID = "PL100msBiYaGgV-6-EesElWkuH-AbIx8nx"
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 DATA_DIR = "data"
 OUTPUT_DIR = "public"
@@ -68,6 +70,44 @@ def fetch_curator_reviews():
     print(f"Found {len(games)} total games from curator.")
     return games
 
+def fetch_playlist_videos():
+    videos = []
+    try:
+        url = f"https://www.youtube.com/playlist?list={PLAYLIST_ID}"
+        print("Fetching YouTube playlist...")
+        res = requests.get(url, headers=HEADERS, timeout=20)
+        match = re.search(r'(?:var ytInitialData|window\["ytInitialData"\])\s*=\s*(\{.*?\});\s*</script>', res.text, re.DOTALL)
+        if not match:
+            print("Could not find playlist data on the page.")
+            return videos
+        data = json.loads(match.group(1))
+        items = None
+        tabs = data.get('contents', {}).get('twoColumnBrowseResultsRenderer', {}).get('tabs', [])
+        for tab in tabs:
+            content = tab.get('tabRenderer', {}).get('content', {})
+            for c in content.get('sectionListRenderer', {}).get('contents', []):
+                ilr = c.get('itemListRenderer')
+                if ilr:
+                    items = ilr.get('contents', [])
+                    break
+            if items: break
+        if not items:
+            print("No playlist items found.")
+            return videos
+        for item in items[:48]:
+            pvr = item.get('playlistVideoRenderer')
+            if not pvr: continue
+            vid = pvr.get('videoId')
+            title_obj = pvr.get('title', {})
+            title = title_obj.get('runs', [{}])[0].get('text', '') if 'runs' in title_obj else title_obj.get('simpleText', '')
+            length = pvr.get('lengthText', {}).get('simpleText', '')
+            if vid:
+                videos.append({'video_id': vid, 'title': title, 'length': length})
+        print(f"Found {len(videos)} playlist videos.")
+    except Exception as e:
+        print(f"Error fetching playlist: {e}")
+    return videos
+
 def fetch_steam_data(appid):
     session = requests.Session()
     session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
@@ -120,7 +160,6 @@ def fetch_steam_data(appid):
         date_div = soup.find('div', class_='date')
         release_date = date_div.get_text(strip=True) if date_div else "Unknown"
 
-        # FIXED PRICE LOGIC
         price = ""
         price_el = soup.find('div', class_='game_purchase_price')
         if not price_el: price_el = soup.find('div', class_='discount_final_price')
@@ -150,10 +189,11 @@ def fetch_steam_data(appid):
         print(f"Error scraping {appid}: {e}")
         return None
 
-def build_site(games):
+def build_site(games, playlist_videos):
     env = Environment(loader=FileSystemLoader('.'))
     index_tpl = env.get_template('index_tpl.html')
     game_tpl = env.get_template('game_tpl.html')
+    playlist_tpl = env.get_template('playlist_tpl.html')
     site_games = []
 
     for g in games:
@@ -191,8 +231,10 @@ def build_site(games):
         game_tpl.stream(game=game_info).dump(os.path.join(OUTPUT_DIR, f"game_{appid}.html"))
 
     index_tpl.stream(games=site_games).dump(os.path.join(OUTPUT_DIR, "index.html"))
+    playlist_tpl.stream(videos=playlist_videos).dump(os.path.join(OUTPUT_DIR, "playlist.html"))
     print("Site generation complete.")
 
 if __name__ == "__main__":
     reviews = fetch_curator_reviews()
-    build_site(reviews)
+    playlist_videos = fetch_playlist_videos()
+    build_site(reviews, playlist_videos)
