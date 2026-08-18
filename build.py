@@ -22,34 +22,51 @@ def get_yt_id(url):
 
 def fetch_curator_reviews():
     games = []
-    for page in range(1, 4):
-        url = f"{CURATOR_URL}?p={page}&numperpage=100"
+    # Fetch up to 5 pages (your latest ~50 reviews)
+    for page in range(1, 6): 
+        url = f"{CURATOR_URL}?p={page}"
         print(f"Fetching curator reviews page {page}...")
-        res = requests.get(url, headers=HEADERS)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        recommendations = soup.find_all('div', class_='recommendation')
-
-        for rec in recommendations:
-            a_tag = rec.find('a', attrs={'data-ds-appid': True})
-            if not a_tag: continue
-            appid = a_tag.get('data-ds-appid')
-            if any(g['appid'] == appid for g in games): continue
-
-            review_type = "Informational"
-            if rec.find('span', class_='color_recommended'): review_type = "Recommended"
-            elif rec.find('span', class_='color_not_recommended'): review_type = "Not Recommended"
-
-            desc_div = rec.find('div', class_='recommendation_desc')
-            curator_desc = desc_div.get_text(strip=True) if desc_div else ""
-
-            readmore = rec.find('div', class_='recommendation_readmore')
-            yt_link = ""
-            if readmore:
-                yt_a = readmore.find('a')
-                if yt_a and 'youtu' in yt_a.get('href', ''): yt_link = yt_a.get('href')
-
-            games.append({'appid': appid, 'curator_desc': curator_desc, 'yt_link': yt_link, 'review_type': review_type})
-        time.sleep(1)
+        try:
+            res = requests.get(url, headers=HEADERS, timeout=15)
+            if res.status_code != 200:
+                print(f"Failed to load page {page}, status: {res.status_code}")
+                continue
+                
+            soup = BeautifulSoup(res.text, 'html.parser')
+            recommendations = soup.find_all('div', class_='recommendation')
+            
+            if not recommendations:
+                print(f"No more recommendations found on page {page}, stopping.")
+                break
+                
+            for rec in recommendations:
+                a_tag = rec.find('a', attrs={'data-ds-appid': True})
+                if not a_tag: continue
+                appid = a_tag.get('data-ds-appid')
+                
+                if any(g['appid'] == appid for g in games): continue
+                
+                review_type = "Informational"
+                if rec.find('span', class_='color_recommended'): review_type = "Recommended"
+                elif rec.find('span', class_='color_not_recommended'): review_type = "Not Recommended"
+                    
+                desc_div = rec.find('div', class_='recommendation_desc')
+                curator_desc = desc_div.get_text(strip=True) if desc_div else ""
+                
+                readmore = rec.find('div', class_='recommendation_readmore')
+                yt_link = ""
+                if readmore:
+                    yt_a = readmore.find('a')
+                    if yt_a and 'youtu' in yt_a.get('href', ''): yt_link = yt_a.get('href')
+                        
+                games.append({'appid': appid, 'curator_desc': curator_desc, 'yt_link': yt_link, 'review_type': review_type})
+            
+            time.sleep(3) # Be polite to Steam so they don't block page 2, 3, etc.
+        except Exception as e:
+            print(f"Error fetching curator page {page}: {e}")
+            continue
+            
+    print(f"Found {len(games)} total games from curator.")
     return games
 
 def fetch_steam_data(appid):
@@ -64,12 +81,10 @@ def fetch_steam_data(appid):
         res.raise_for_status()
         soup = BeautifulSoup(res.text, 'html.parser')
 
-        # Title
         name_el = soup.find('div', class_='apphub_AppName') or soup.find('div', id='appHubTitle') or soup.find('title')
         name = name_el.get_text(strip=True) if name_el else "Unknown Game"
         if "on Steam" in name: name = name.replace("on Steam", "").strip()
 
-        # Header image: grab EXACTLY what Steam shows on the store page
         header_img = None
         img_el = soup.find('img', class_='game_header_image_full')
         if img_el and img_el.get('src'): header_img = img_el.get('src')
@@ -79,7 +94,6 @@ def fetch_steam_data(appid):
         if not header_img:
             header_img = f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"
 
-        # Screenshots (up to 4)
         screenshots = []
         for s in soup.find_all('img', class_='highlight_screenshot_image')[:4]:
             if s.get('src'): screenshots.append(s.get('src'))
@@ -87,7 +101,6 @@ def fetch_steam_data(appid):
             for s in soup.find_all('a', class_='highlight_screenshot_link')[:4]:
                 if s.get('href'): screenshots.append(s.get('href'))
 
-        # Tags
         tags = []
         tags_div = soup.find('div', class_='popular_tags')
         if tags_div:
@@ -97,13 +110,11 @@ def fetch_steam_data(appid):
             if genres:
                 tags = [a.get_text(strip=True) for a in genres.find_all('a') if a.get_text(strip=True)][:6]
 
-        # Descriptions
         short_desc_el = soup.find('div', class_='game_description_snippet')
         short_desc = short_desc_el.get_text(strip=True) if short_desc_el else ""
         desc_div = soup.find('div', id='game_area_description')
         desc_html = str(desc_div) if desc_div else f"<p>{short_desc}</p>"
 
-        # Developer / date / price
         dev_div = soup.find('div', id='developers_list')
         developers = ', '.join([a.get_text(strip=True) for a in dev_div.find_all('a')]) if dev_div else "Unknown"
 
@@ -138,7 +149,6 @@ def build_site(games):
         json_path = os.path.join(DATA_DIR, f"{appid}.json")
         steam_data = None
 
-        # Use cache only if it already has the new fields (tags)
         if os.path.exists(json_path):
             with open(json_path, 'r') as f: cached = json.load(f)
             if 'tags' in cached: steam_data = cached
@@ -148,7 +158,7 @@ def build_site(games):
             steam_data = fetch_steam_data(appid)
             if steam_data:
                 with open(json_path, 'w') as f: json.dump(steam_data, f)
-            time.sleep(1.5)
+            time.sleep(1.5) # Polite delay for Steam store pages
 
         if not steam_data: continue
 
@@ -168,7 +178,9 @@ def build_site(games):
         site_games.append(game_info)
         game_tpl.stream(game=game_info).dump(os.path.join(OUTPUT_DIR, f"game_{appid}.html"))
 
-    site_games.sort(key=lambda x: int(x['appid']), reverse=True)
+    # REMOVED THE SORT BY APPID
+    # Now it preserves the exact chronological order from your Steam Curator page!
+    
     index_tpl.stream(games=site_games).dump(os.path.join(OUTPUT_DIR, "index.html"))
     print("Site generation complete.")
 
