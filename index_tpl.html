@@ -13,6 +13,7 @@
         .badge-recommended { background: #22c55e; color: white; }
         .badge-informational { background: #3b82f6; color: white; }
         .badge-not-recommended { background: #ef4444; color: white; }
+        .tag-chip { background: #334155; color: #cbd5e1; font-size: 0.65rem; padding: 2px 8px; border-radius: 9999px; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -34,7 +35,7 @@
             {% for game in games %}
             <a href="game_{{ game.appid }}.html" class="card block">
                 <div class="relative">
-                    <img src="{{ game.header_image }}" alt="{{ game.name }}" class="w-full h-48 object-cover bg-slate-700">
+                    <img src="{{ game.header_image }}" alt="{{ game.name }}" class="w-full h-48 object-cover bg-slate-700" onerror="this.onerror=null;this.src='https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/capsule_616x353.jpg';">
                     {% if game.review_type == 'Recommended' %}
                         <span class="badge-recommended absolute top-2 right-2 text-xs px-2 py-1 rounded-full font-bold shadow">Recommended</span>
                     {% elif game.review_type == 'Informational' %}
@@ -46,7 +47,17 @@
                 <div class="p-4">
                     <h2 class="text-lg font-semibold truncate mb-1">{{ game.name }}</h2>
                     <p class="text-slate-400 text-sm line-clamp-2">{{ game.curator_desc }}</p>
-                    <p class="text-xs text-slate-500 mt-3">{{ game.release_date }}</p>
+                    {% if game.tags %}
+                    <div class="flex flex-wrap gap-1 mt-3">
+                        {% for tag in game.tags[:4] %}
+                        <span class="tag-chip">{{ tag }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    <div class="flex justify-between items-center mt-3">
+                        <p class="text-xs text-slate-500">{{ game.release_date }}</p>
+                        {% if game.price %}<p class="text-xs font-semibold text-green-400">{{ game.price }}</p>{% endif %}
+                    </div>
                 </div>
             </a>
             {% endfor %}
