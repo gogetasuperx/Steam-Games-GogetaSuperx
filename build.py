@@ -10,6 +10,7 @@ CURATOR_ID = "44917508"
 CURATOR_URL = f"https://store.steampowered.com/curator/{CURATOR_ID}/"
 PLAYLIST_ID = "PL100msBiYaGgV-6-EesElWkuH-AbIx8nx"
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+YT_COOKIES = {'CONSENT': 'YES+1', 'SOCS': 'CAI'}
 DATA_DIR = "data"
 OUTPUT_DIR = "public"
 
@@ -21,6 +22,73 @@ def get_yt_id(url):
     if 'youtu.be/' in url: return url.split('youtu.be/')[1].split('?')[0]
     elif 'youtube.com/watch?v=' in url: return url.split('v=')[1].split('&')[0]
     return None
+
+def _collect_renderers(obj, results):
+    if isinstance(obj, dict):
+        if 'playlistVideoRenderer' in obj:
+            results.append(obj['playlistVideoRenderer'])
+        for v in obj.values():
+            _collect_renderers(v, results)
+    elif isinstance(obj, list):
+        for v in obj:
+            _collect_renderers(v, results)
+
+def _renderers_to_videos(renderers, limit=48):
+    videos = []
+    for pvr in renderers:
+        vid = pvr.get('videoId')
+        if not vid: continue
+        title_obj = pvr.get('title', {})
+        title = ''
+        if isinstance(title_obj, dict):
+            runs = title_obj.get('runs')
+            title = runs[0].get('text', '') if runs else title_obj.get('simpleText', '')
+        length_obj = pvr.get('lengthText')
+        length = length_obj.get('simpleText', '') if isinstance(length_obj, dict) else ''
+        videos.append({'video_id': vid, 'title': title, 'length': length})
+        if len(videos) >= limit: break
+    return videos
+
+def fetch_playlist_videos():
+    # Strategy 1: playlist HTML page
+    try:
+        url = f"https://www.youtube.com/playlist?list={PLAYLIST_ID}&hl=en&gl=US"
+        res = requests.get(url, headers=HEADERS, cookies=YT_COOKIES, timeout=20)
+        print(f"Playlist HTML status: {res.status_code}")
+        m = re.search(r'(?:var ytInitialData|window\["ytInitialData"\])\s*=\s*(\{.*?\});\s*</script>', res.text, re.DOTALL)
+        if m:
+            renderers = []
+            _collect_renderers(json.loads(m.group(1)), renderers)
+            videos = _renderers_to_videos(renderers)
+            if videos:
+                print(f"Found {len(videos)} playlist videos via HTML.")
+                return videos
+        print("HTML strategy found no videos, trying backup...")
+    except Exception as e:
+        print(f"HTML strategy error: {e}")
+
+    # Strategy 2: YouTube internal API (backup)
+    for client in [{"clientName": "WEB", "clientVersion": "2.20240101.00.00"},
+                   {"clientName": "ANDROID", "clientVersion": "19.09.37", "androidSdkVersion": 30}]:
+        try:
+            payload = {"context": {"client": client}, "browseId": "VL" + PLAYLIST_ID}
+            res = requests.post(
+                "https://www.youtube.com/youtubei/v1/browse",
+                params={"key": "AIzaSyAO_FJ2SlVU8Q4vlSTrv8EoXqnnH931pBE"},
+                json=payload, headers=HEADERS, timeout=20)
+            print(f"Innertube {client['clientName']} status: {res.status_code}")
+            if res.status_code == 200:
+                renderers = []
+                _collect_renderers(res.json(), renderers)
+                videos = _renderers_to_videos(renderers)
+                if videos:
+                    print(f"Found {len(videos)} playlist videos via Innertube {client['clientName']}.")
+                    return videos
+        except Exception as e:
+            print(f"Innertube {client['clientName']} error: {e}")
+
+    print("Could not load playlist videos.")
+    return []
 
 def fetch_curator_reviews():
     games = []
@@ -69,44 +137,6 @@ def fetch_curator_reviews():
             
     print(f"Found {len(games)} total games from curator.")
     return games
-
-def fetch_playlist_videos():
-    videos = []
-    try:
-        url = f"https://www.youtube.com/playlist?list={PLAYLIST_ID}"
-        print("Fetching YouTube playlist...")
-        res = requests.get(url, headers=HEADERS, timeout=20)
-        match = re.search(r'(?:var ytInitialData|window\["ytInitialData"\])\s*=\s*(\{.*?\});\s*</script>', res.text, re.DOTALL)
-        if not match:
-            print("Could not find playlist data on the page.")
-            return videos
-        data = json.loads(match.group(1))
-        items = None
-        tabs = data.get('contents', {}).get('twoColumnBrowseResultsRenderer', {}).get('tabs', [])
-        for tab in tabs:
-            content = tab.get('tabRenderer', {}).get('content', {})
-            for c in content.get('sectionListRenderer', {}).get('contents', []):
-                ilr = c.get('itemListRenderer')
-                if ilr:
-                    items = ilr.get('contents', [])
-                    break
-            if items: break
-        if not items:
-            print("No playlist items found.")
-            return videos
-        for item in items[:48]:
-            pvr = item.get('playlistVideoRenderer')
-            if not pvr: continue
-            vid = pvr.get('videoId')
-            title_obj = pvr.get('title', {})
-            title = title_obj.get('runs', [{}])[0].get('text', '') if 'runs' in title_obj else title_obj.get('simpleText', '')
-            length = pvr.get('lengthText', {}).get('simpleText', '')
-            if vid:
-                videos.append({'video_id': vid, 'title': title, 'length': length})
-        print(f"Found {len(videos)} playlist videos.")
-    except Exception as e:
-        print(f"Error fetching playlist: {e}")
-    return videos
 
 def fetch_steam_data(appid):
     session = requests.Session()
