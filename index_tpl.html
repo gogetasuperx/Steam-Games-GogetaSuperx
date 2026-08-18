@@ -18,6 +18,9 @@
         .nav-btn-active { background: #3b82f6; color: white; }
         .nav-btn-idle { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
         .nav-btn-idle:hover { color: white; border-color: #3b82f6; }
+        .filter-btn { padding: 6px 14px; border-radius: 9999px; font-weight: 600; font-size: 0.8rem; background: #1e293b; color: #94a3b8; border: 1px solid #334155; transition: all 0.2s; cursor: pointer; }
+        .filter-btn:hover { color: white; border-color: #3b82f6; }
+        .filter-active { background: #3b82f6; color: white; border-color: #3b82f6; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -33,7 +36,7 @@
             <p class="text-slate-400 mt-1">New Free Games Demos Early Access</p>
             <nav class="flex flex-wrap gap-3 mt-5">
                 <a href="index.html" class="nav-btn nav-btn-active">Steam Reviews</a>
-                <a href="playlist.html" class="nav-btn nav-btn-idle">YouTube Playlist</a>
+                <a href="playlist.html" class="nav-btn nav-btn-idle">Daily Releases</a>
                 <a href="https://www.youtube.com/@GogetaSuperx" target="_blank" class="nav-btn nav-btn-idle">YouTube Channel</a>
                 <a href="https://store.steampowered.com/curator/44917508/" target="_blank" class="nav-btn nav-btn-idle">Steam Curator</a>
             </nav>
@@ -41,9 +44,16 @@
     </header>
 
     <main class="container mx-auto px-4 py-8">
+        <div class="flex flex-wrap gap-3 mb-6">
+            <button class="filter-btn filter-active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="Recommended">Recommended</button>
+            <button class="filter-btn" data-filter="Informational">Info</button>
+            <button class="filter-btn" data-filter="Not Recommended">Not Recommended</button>
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {% for game in games %}
-            <a href="game_{{ game.appid }}.html" class="card block">
+            <a href="game_{{ game.appid }}.html" class="card block" data-review="{{ game.review_type }}">
                 <div class="relative">
                     <img src="{{ game.header_image }}" alt="{{ game.name }}" class="w-full h-48 object-cover bg-slate-700" onerror="this.onerror=null;this.src='https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/capsule_616x353.jpg';">
                     {% if game.review_type == 'Recommended' %}
@@ -73,5 +83,22 @@
             {% endfor %}
         </div>
     </main>
+
+    <script>
+        document.querySelectorAll('.filter-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('filter-active'); });
+                btn.classList.add('filter-active');
+                var f = btn.getAttribute('data-filter');
+                document.querySelectorAll('.card').forEach(function(card) {
+                    if (f === 'all' || card.getAttribute('data-review') === f) {
+                        card.style.display = '';
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            });
+        });
+    </script>
 </body>
 </html>
