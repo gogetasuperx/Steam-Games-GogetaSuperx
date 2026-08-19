@@ -2,13 +2,13 @@ name: Auto Update Site
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # Runs every 6 hours
+    - cron: '0 */6 * * *'
   workflow_dispatch:
   push:
     branches: ["main"]
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -35,6 +35,12 @@ jobs:
 
       - name: Run build script
         run: python build.py
+
+      - name: Save updated game data back to the repo
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "data: refresh cached game info"
+          file_pattern: 'data/*.json'
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
