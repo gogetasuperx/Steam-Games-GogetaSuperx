@@ -2,18 +2,14 @@ import os
 import json
 import time
 import requests
-import yt_dlp
-import base64
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
 
 CURATOR_ID = "44917508"
 CURATOR_URL = f"https://store.steampowered.com/curator/{CURATOR_ID}/"
-PLAYLIST_ID = "PL100msBiYaGgV-6-EesElWkuH-AbIx8nx"
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 DATA_DIR = "data"
 OUTPUT_DIR = "public"
-MAX_BACKFILL = 200   # how many existing reviews to try to grab
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -24,7 +20,6 @@ def get_yt_id(url):
     elif 'youtube.com/watch?v=' in url: return url.split('v=')[1].split('&')[0]
     return None
 
-# ---------- Curator scraping ----------
 def parse_recommendations(soup):
     entries = []
     for rec in soup.find_all('div', class_='recommendation'):
@@ -55,7 +50,6 @@ def fetch_curator_reviews():
                 seen[e['appid']] = e
                 ordered.append(e['appid'])
 
-    # Scrape up to 20 HTML pages (approx 200 reviews per run)
     for page in range(1, 21): 
         try:
             url = f"{CURATOR_URL}?p={page}"
@@ -69,58 +63,13 @@ def fetch_curator_reviews():
                 break
                 
             add(entries)
-            time.sleep(2) # Polite delay to avoid Steam blocks
+            time.sleep(2)
         except Exception as e:
             print(f"HTML page {page} error: {e}")
 
     print(f"Collected {len(ordered)} unique reviews this run")
     return [seen[a] for a in ordered]
 
-# ---------- Playlist ----------
-def get_vid_timestamp(vid):
-    try:
-        # YouTube IDs are Base64 encoded. The first characters contain the upload timestamp!
-        padded = vid + '=' * ((4 - len(vid) % 4) % 4)
-        decoded = base64.urlsafe_b64decode(padded)
-        return int.from_bytes(decoded[:4], 'big')
-    except Exception:
-        return 0
-
-def fetch_playlist_videos():
-    videos = []
-    playlist_url = f"https://www.youtube.com/playlist?list={PLAYLIST_ID}"
-    # 'extract_flat' makes it lightning-fast and prevents YouTube from blocking us
-    ydl_opts = {
-        'quiet': True, 
-        'extract_flat': 'in_playlist', 
-        'playlistend': 48
-    }
-    try:
-        print("Fetching playlist via yt-dlp...")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(playlist_url, download=False)
-            if 'entries' in info:
-                for entry in info['entries']:
-                    if not entry: continue
-                    length = entry.get('duration_string', '')
-                    if not length and entry.get('duration'):
-                        mins, secs = divmod(int(entry['duration']), 60)
-                        length = f"{mins}:{secs:02d}"
-                    videos.append({
-                        'video_id': entry.get('id'),
-                        'title': entry.get('title', 'Untitled'),
-                        'length': length,
-                    })
-        
-        # Sort mathematically by the hidden timestamp in the YouTube Video ID!
-        videos.sort(key=lambda v: get_vid_timestamp(v.get('video_id', '')), reverse=True)
-        videos = videos[:48]
-        print(f"Found {len(videos)} playlist videos (newest first via ID decoding).")
-    except Exception as e:
-        print(f"yt-dlp error: {e}")
-    return videos
-    
-# ---------- Steam store data ----------
 def fetch_steam_data(appid):
     session = requests.Session()
     session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
@@ -186,7 +135,6 @@ def fetch_steam_data(appid):
         print(f"Error scraping {appid}: {e}")
         return None
 
-# ---------- Persistence ----------
 def load_saved_games():
     saved = {}
     if os.path.exists(DATA_DIR):
@@ -198,20 +146,17 @@ def load_saved_games():
                 except: pass
     return saved
 
-# ---------- Build ----------
-def build_site(reviews, playlist_videos):
+def build_site(reviews):
     saved = load_saved_games()
     env = Environment(loader=FileSystemLoader('.'))
     index_tpl = env.get_template('index_tpl.html')
     game_tpl = env.get_template('game_tpl.html')
-    playlist_tpl = env.get_template('playlist_tpl.html')
 
     now = time.time()
     new_count = 0
     for idx, r in enumerate(reviews):
         appid = r['appid']
         if appid in saved:
-            # already saved: just refresh the review info, keep everything else
             saved[appid]['review_type'] = r['review_type']
             saved[appid]['curator_desc'] = r['curator_desc']
             saved[appid]['yt_link'] = r['yt_link']
@@ -223,7 +168,7 @@ def build_site(reviews, playlist_videos):
             steam['review_type'] = r['review_type']
             steam['curator_desc'] = r['curator_desc']
             steam['yt_link'] = r['yt_link']
-            steam['first_seen'] = now - idx   # newest scraped = highest value
+            steam['first_seen'] = now - idx
             saved[appid] = steam
             with open(os.path.join(DATA_DIR, f"{appid}.json"), 'w') as f:
                 json.dump(steam, f)
@@ -246,12 +191,10 @@ def build_site(reviews, playlist_videos):
         site_games.append(game_info)
         game_tpl.stream(game=game_info).dump(os.path.join(OUTPUT_DIR, f"game_{appid}.html"))
 
-    site_games.sort(key=lambda g: g['first_seen'], reverse=True)  # newest first
+    site_games.sort(key=lambda g: g['first_seen'], reverse=True)
     index_tpl.stream(games=site_games).dump(os.path.join(OUTPUT_DIR, "index.html"))
-    playlist_tpl.stream(videos=playlist_videos).dump(os.path.join(OUTPUT_DIR, "playlist.html"))
     print(f"Site generation complete. Total games on site: {len(site_games)}")
 
 if __name__ == "__main__":
     reviews = fetch_curator_reviews()
-    playlist_videos = fetch_playlist_videos()
-    build_site(reviews, playlist_videos)
+    build_site(reviews)
