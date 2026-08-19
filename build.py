@@ -97,9 +97,10 @@ def fetch_curator_reviews():
 def fetch_playlist_videos():
     videos = []
     playlist_url = f"https://www.youtube.com/playlist?list={PLAYLIST_ID}"
-    ydl_opts = {'quiet': True, 'extract_flat': True, 'playlistend': 200}
+    # We removed 'extract_flat': True so it fetches the real upload dates for every video
+    ydl_opts = {'quiet': True, 'playlistend': 48}
     try:
-        print("Fetching playlist via yt-dlp...")
+        print("Fetching playlist via yt-dlp (fetching dates may take a moment)...")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(playlist_url, download=False)
             if 'entries' in info:
@@ -113,10 +114,10 @@ def fetch_playlist_videos():
                         'video_id': entry.get('id'),
                         'title': entry.get('title', 'Untitled'),
                         'length': length,
+                        'upload_date': entry.get('upload_date', '00000000'), # YYYYMMDD format
                     })
-        # New videos are appended to the BOTTOM of a YouTube playlist,
-        # so reversing puts the newest videos at the top.
-        videos.reverse()
+        # Sort mathematically by upload date (newest first)
+        videos.sort(key=lambda v: v.get('upload_date', '00000000'), reverse=True)
         videos = videos[:48]
         print(f"Found {len(videos)} playlist videos (newest first).")
     except Exception as e:
