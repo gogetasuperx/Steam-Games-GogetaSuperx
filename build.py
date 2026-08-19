@@ -54,41 +54,23 @@ def fetch_curator_reviews():
                 seen[e['appid']] = e
                 ordered.append(e['appid'])
 
-    # Strategy 1: Steam's infinite-scroll endpoint (grabs many reviews)
-    ajax_urls = [
-        f"https://store.steampowered.com/curator/{CURATOR_ID}/ajaxgetfilteredrecommendations/render/",
-        f"https://store.steampowered.com/curator/{CURATOR_ID}/ajaxgetfilteredrecommendations/",
-    ]
-    for ajax in ajax_urls:
-        if len(ordered) >= 20: break
+    # Scrape up to 20 HTML pages (approx 200 reviews per run)
+    for page in range(1, 21): 
         try:
-            start = 0
-            while start < MAX_BACKFILL:
-                params = {'query': '', 'start': start, 'count': 50, 'sort': 'recent'}
-                res = requests.get(ajax, params=params, headers=HEADERS, timeout=20)
-                print(f"AJAX {ajax.split('/')[-2]} start={start} status={res.status_code}")
-                if res.status_code != 200 or not res.text.strip(): break
-                entries = parse_recommendations(BeautifulSoup(res.text, 'html.parser'))
-                if not entries: break
-                add(entries)
-                start += 50
-                if len(entries) < 50: break
-                time.sleep(2)
+            url = f"{CURATOR_URL}?p={page}"
+            print(f"Fetching HTML page {page}...")
+            res = requests.get(url, headers=HEADERS, timeout=15)
+            if res.status_code != 200: continue
+            
+            entries = parse_recommendations(BeautifulSoup(res.text, 'html.parser'))
+            if not entries: 
+                print(f"End of reviews reached on page {page}.")
+                break
+                
+            add(entries)
+            time.sleep(2) # Polite delay to avoid Steam blocks
         except Exception as e:
-            print(f"AJAX error: {e}")
-
-    # Strategy 2 (fallback): regular pages
-    if len(ordered) < 20:
-        for page in range(1, 11):
-            try:
-                res = requests.get(f"{CURATOR_URL}?p={page}&numperpage=100", headers=HEADERS, timeout=15)
-                if res.status_code != 200: continue
-                entries = parse_recommendations(BeautifulSoup(res.text, 'html.parser'))
-                if not entries: break
-                add(entries)
-                time.sleep(2)
-            except Exception as e:
-                print(f"HTML page {page} error: {e}")
+            print(f"HTML page {page} error: {e}")
 
     print(f"Collected {len(ordered)} unique reviews this run")
     return [seen[a] for a in ordered]
