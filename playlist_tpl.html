@@ -8,8 +8,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
-        .card { background: #1e293b; border-radius: 8px; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; display: block; }
-        .card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); }
+        .card { background: #1e293b; border-radius: 8px; overflow: hidden; transition: transform 0.3s ease, box-shadow 0.3s ease; display: block; }
+        .card:hover { transform: translateY(-6px) scale(1.02); box-shadow: 0 0 25px rgba(59, 130, 246, 0.45), 0 12px 20px -5px rgba(0, 0, 0, 0.6); }
+        .card img { transition: transform 0.4s ease; }
+        .card:hover img { transform: scale(1.06); }
         .nav-btn { padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 0.875rem; transition: all 0.2s; }
         .nav-btn-active { background: #3b82f6; color: white; }
         .nav-btn-idle { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
