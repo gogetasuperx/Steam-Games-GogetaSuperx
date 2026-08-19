@@ -17,9 +17,6 @@
         .btn-steamdb { background: #2d3748; color: #f8fafc; }
         .btn-curator { background: #3b82f6; color: white; }
         .tag-chip { background: #334155; color: #cbd5e1; font-size: 0.7rem; padding: 3px 10px; border-radius: 9999px; }
-        .nav-btn { padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 0.875rem; transition: all 0.2s; }
-        .nav-btn-idle { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
-        .nav-btn-idle:hover { color: white; border-color: #3b82f6; }
 
         #game_area_description h2 { font-size: 1.5rem; font-weight: bold; margin-top: 1.5rem; margin-bottom: 0.5rem; color: #60a5fa; }
         #game_area_description br { display: block; margin: 0.5rem 0; content: ""; }
@@ -29,20 +26,12 @@
 <body class="min-h-screen">
     <header class="bg-slate-900 border-b border-slate-800 py-4 mb-8 sticky top-0 z-10 shadow-md">
         <div class="container mx-auto px-4">
-            <div class="flex justify-between items-center">
-                <a href="index.html" class="text-xl font-bold text-blue-400 hover:text-blue-300 flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                    </svg>
-                    All Reviews
-                </a>
-                <h1 class="text-xl font-semibold truncate ml-4">{{ game.name }}</h1>
-            </div>
-            <nav class="flex flex-wrap gap-3 mt-3">
-                <a href="index.html" class="nav-btn nav-btn-idle">Steam Reviews</a>
-                <a href="playlist.html" class="nav-btn nav-btn-idle">Daily Releases</a>
-                <a href="https://www.youtube.com/@GogetaSuperx" target="_blank" class="nav-btn nav-btn-idle">YouTube Channel</a>
-            </nav>
+            <a href="index.html" class="text-xl font-bold text-blue-400 hover:text-blue-300 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+                All Reviews
+            </a>
         </div>
     </header>
 
