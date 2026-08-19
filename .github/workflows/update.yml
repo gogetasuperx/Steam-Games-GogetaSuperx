@@ -41,6 +41,8 @@ jobs:
         with:
           commit_message: "data: refresh cached game info"
           file_pattern: 'data/*.json'
+          branch: main
+          push_options: '--force'
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
