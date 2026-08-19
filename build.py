@@ -3,6 +3,7 @@ import json
 import time
 import requests
 import yt_dlp
+import base64
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
 
@@ -76,13 +77,26 @@ def fetch_curator_reviews():
     return [seen[a] for a in ordered]
 
 # ---------- Playlist ----------
+def get_vid_timestamp(vid):
+    try:
+        # YouTube IDs are Base64 encoded. The first characters contain the upload timestamp!
+        padded = vid + '=' * ((4 - len(vid) % 4) % 4)
+        decoded = base64.urlsafe_b64decode(padded)
+        return int.from_bytes(decoded[:4], 'big')
+    except Exception:
+        return 0
+
 def fetch_playlist_videos():
     videos = []
     playlist_url = f"https://www.youtube.com/playlist?list={PLAYLIST_ID}"
-    # We removed 'extract_flat': True so it fetches the real upload dates for every video
-    ydl_opts = {'quiet': True, 'playlistend': 48}
+    # 'extract_flat' makes it lightning-fast and prevents YouTube from blocking us
+    ydl_opts = {
+        'quiet': True, 
+        'extract_flat': 'in_playlist', 
+        'playlistend': 48
+    }
     try:
-        print("Fetching playlist via yt-dlp (fetching dates may take a moment)...")
+        print("Fetching playlist via yt-dlp...")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(playlist_url, download=False)
             if 'entries' in info:
@@ -96,16 +110,16 @@ def fetch_playlist_videos():
                         'video_id': entry.get('id'),
                         'title': entry.get('title', 'Untitled'),
                         'length': length,
-                        'upload_date': entry.get('upload_date', '00000000'), # YYYYMMDD format
                     })
-        # Sort mathematically by upload date (newest first)
-        videos.sort(key=lambda v: v.get('upload_date', '00000000'), reverse=True)
+        
+        # Sort mathematically by the hidden timestamp in the YouTube Video ID!
+        videos.sort(key=lambda v: get_vid_timestamp(v.get('video_id', '')), reverse=True)
         videos = videos[:48]
-        print(f"Found {len(videos)} playlist videos (newest first).")
+        print(f"Found {len(videos)} playlist videos (newest first via ID decoding).")
     except Exception as e:
         print(f"yt-dlp error: {e}")
     return videos
-
+    
 # ---------- Steam store data ----------
 def fetch_steam_data(appid):
     session = requests.Session()
