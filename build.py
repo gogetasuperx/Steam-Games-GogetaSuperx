@@ -1,8 +1,6 @@
 import os
-import re
 import json
 import time
-import base64
 import requests
 import yt_dlp
 from bs4 import BeautifulSoup
@@ -14,6 +12,7 @@ PLAYLIST_ID = "PL100msBiYaGgV-6-EesElWkuH-AbIx8nx"
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 DATA_DIR = "data"
 OUTPUT_DIR = "public"
+MAX_BACKFILL = 200   # how many existing reviews to try to grab
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -24,22 +23,81 @@ def get_yt_id(url):
     elif 'youtube.com/watch?v=' in url: return url.split('v=')[1].split('&')[0]
     return None
 
-def _vid_timestamp(vid):
-    # YouTube video IDs contain a hidden upload timestamp in their first characters
-    try:
-        raw = base64.urlsafe_b64decode(vid[:6] + '==')
-        return int.from_bytes(raw[:4], 'big') >> 4
-    except Exception:
-        return 0
+# ---------- Curator scraping ----------
+def parse_recommendations(soup):
+    entries = []
+    for rec in soup.find_all('div', class_='recommendation'):
+        a_tag = rec.find('a', attrs={'data-ds-appid': True})
+        if not a_tag: continue
+        appid = a_tag.get('data-ds-appid')
+        review_type = "Informational"
+        if rec.find('span', class_='color_recommended'): review_type = "Recommended"
+        elif rec.find('span', class_='color_not_recommended'): review_type = "Not Recommended"
+        desc_div = rec.find('div', class_='recommendation_desc')
+        curator_desc = desc_div.get_text(strip=True) if desc_div else ""
+        yt_link = ""
+        readmore = rec.find('div', class_='recommendation_readmore')
+        if readmore:
+            yt_a = readmore.find('a')
+            if yt_a and 'youtu' in yt_a.get('href', ''): yt_link = yt_a.get('href')
+        entries.append({'appid': appid, 'review_type': review_type,
+                        'curator_desc': curator_desc, 'yt_link': yt_link})
+    return entries
 
+def fetch_curator_reviews():
+    seen = {}
+    ordered = []
+
+    def add(entries):
+        for e in entries:
+            if e['appid'] not in seen:
+                seen[e['appid']] = e
+                ordered.append(e['appid'])
+
+    # Strategy 1: Steam's infinite-scroll endpoint (grabs many reviews)
+    ajax_urls = [
+        f"https://store.steampowered.com/curator/{CURATOR_ID}/ajaxgetfilteredrecommendations/render/",
+        f"https://store.steampowered.com/curator/{CURATOR_ID}/ajaxgetfilteredrecommendations/",
+    ]
+    for ajax in ajax_urls:
+        if len(ordered) >= 20: break
+        try:
+            start = 0
+            while start < MAX_BACKFILL:
+                params = {'query': '', 'start': start, 'count': 50, 'sort': 'recent'}
+                res = requests.get(ajax, params=params, headers=HEADERS, timeout=20)
+                print(f"AJAX {ajax.split('/')[-2]} start={start} status={res.status_code}")
+                if res.status_code != 200 or not res.text.strip(): break
+                entries = parse_recommendations(BeautifulSoup(res.text, 'html.parser'))
+                if not entries: break
+                add(entries)
+                start += 50
+                if len(entries) < 50: break
+                time.sleep(2)
+        except Exception as e:
+            print(f"AJAX error: {e}")
+
+    # Strategy 2 (fallback): regular pages
+    if len(ordered) < 20:
+        for page in range(1, 11):
+            try:
+                res = requests.get(f"{CURATOR_URL}?p={page}&numperpage=100", headers=HEADERS, timeout=15)
+                if res.status_code != 200: continue
+                entries = parse_recommendations(BeautifulSoup(res.text, 'html.parser'))
+                if not entries: break
+                add(entries)
+                time.sleep(2)
+            except Exception as e:
+                print(f"HTML page {page} error: {e}")
+
+    print(f"Collected {len(ordered)} unique reviews this run")
+    return [seen[a] for a in ordered]
+
+# ---------- Playlist ----------
 def fetch_playlist_videos():
     videos = []
     playlist_url = f"https://www.youtube.com/playlist?list={PLAYLIST_ID}"
-    ydl_opts = {
-        'quiet': True,
-        'extract_flat': True,
-        'playlistend': 200, # Grab enough videos so we don't miss new ones
-    }
+    ydl_opts = {'quiet': True, 'extract_flat': True, 'playlistend': 200}
     try:
         print("Fetching playlist via yt-dlp...")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -55,62 +113,21 @@ def fetch_playlist_videos():
                         'video_id': entry.get('id'),
                         'title': entry.get('title', 'Untitled'),
                         'length': length,
-                        'ts': entry.get('timestamp') or 0
                     })
-        # Sort NEWEST FIRST using upload timestamp
-        videos.sort(key=lambda v: (v.get('ts') or _vid_timestamp(v.get('video_id', ''))), reverse=True)
-        videos = videos[:48] # Show the 48 most recent
+        # New videos are appended to the BOTTOM of a YouTube playlist,
+        # so reversing puts the newest videos at the top.
+        videos.reverse()
+        videos = videos[:48]
         print(f"Found {len(videos)} playlist videos (newest first).")
     except Exception as e:
         print(f"yt-dlp error: {e}")
     return videos
 
-def fetch_curator_reviews():
-    games = []
-    for page in range(1, 6): 
-        url = f"{CURATOR_URL}?p={page}"
-        print(f"Fetching curator reviews page {page}...")
-        try:
-            res = requests.get(url, headers=HEADERS, timeout=15)
-            if res.status_code != 200: continue
-                
-            soup = BeautifulSoup(res.text, 'html.parser')
-            recommendations = soup.find_all('div', class_='recommendation')
-            
-            if not recommendations: break
-                
-            for rec in recommendations:
-                a_tag = rec.find('a', attrs={'data-ds-appid': True})
-                if not a_tag: continue
-                appid = a_tag.get('data-ds-appid')
-                if any(g['appid'] == appid for g in games): continue
-                
-                review_type = "Informational"
-                if rec.find('span', class_='color_recommended'): review_type = "Recommended"
-                elif rec.find('span', class_='color_not_recommended'): review_type = "Not Recommended"
-                    
-                desc_div = rec.find('div', class_='recommendation_desc')
-                curator_desc = desc_div.get_text(strip=True) if desc_div else ""
-                
-                readmore = rec.find('div', class_='recommendation_readmore')
-                yt_link = ""
-                if readmore:
-                    yt_a = readmore.find('a')
-                    if yt_a and 'youtu' in yt_a.get('href', ''): yt_link = yt_a.get('href')
-                        
-                games.append({'appid': appid, 'curator_desc': curator_desc, 'yt_link': yt_link, 'review_type': review_type})
-            time.sleep(3)
-        except Exception as e:
-            print(f"Error fetching curator page {page}: {e}")
-            continue
-    print(f"Found {len(games)} total games from curator.")
-    return games
-
+# ---------- Steam store data ----------
 def fetch_steam_data(appid):
     session = requests.Session()
     session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
     session.cookies.set('birthtime', '283993200', domain='store.steampowered.com', path='/')
-
     url = f"https://store.steampowered.com/app/{appid}/"
     try:
         res = session.get(url, headers=HEADERS, timeout=15)
@@ -172,43 +189,70 @@ def fetch_steam_data(appid):
         print(f"Error scraping {appid}: {e}")
         return None
 
-def build_site(games, playlist_videos):
+# ---------- Persistence ----------
+def load_saved_games():
+    saved = {}
+    if os.path.exists(DATA_DIR):
+        for fname in os.listdir(DATA_DIR):
+            if fname.endswith('.json'):
+                try:
+                    with open(os.path.join(DATA_DIR, fname)) as f:
+                        saved[fname[:-5]] = json.load(f)
+                except: pass
+    return saved
+
+# ---------- Build ----------
+def build_site(reviews, playlist_videos):
+    saved = load_saved_games()
     env = Environment(loader=FileSystemLoader('.'))
     index_tpl = env.get_template('index_tpl.html')
     game_tpl = env.get_template('game_tpl.html')
     playlist_tpl = env.get_template('playlist_tpl.html')
-    site_games = []
 
-    for g in games:
-        appid = g['appid']
-        json_path = os.path.join(DATA_DIR, f"{appid}.json")
-        steam_data = None
-        if os.path.exists(json_path):
-            with open(json_path, 'r') as f: cached = json.load(f)
-            if 'tags' in cached: steam_data = cached
-        if not steam_data:
-            print(f"Fetching details for {appid}...")
-            steam_data = fetch_steam_data(appid)
-            if steam_data:
-                with open(json_path, 'w') as f: json.dump(steam_data, f)
+    now = time.time()
+    new_count = 0
+    for idx, r in enumerate(reviews):
+        appid = r['appid']
+        if appid in saved:
+            # already saved: just refresh the review info, keep everything else
+            saved[appid]['review_type'] = r['review_type']
+            saved[appid]['curator_desc'] = r['curator_desc']
+            saved[appid]['yt_link'] = r['yt_link']
+        else:
+            print(f"Fetching NEW game {appid}...")
+            steam = fetch_steam_data(appid)
+            if not steam: continue
+            steam['appid'] = appid
+            steam['review_type'] = r['review_type']
+            steam['curator_desc'] = r['curator_desc']
+            steam['yt_link'] = r['yt_link']
+            steam['first_seen'] = now - idx   # newest scraped = highest value
+            saved[appid] = steam
+            with open(os.path.join(DATA_DIR, f"{appid}.json"), 'w') as f:
+                json.dump(steam, f)
+            new_count += 1
             time.sleep(1.5)
-        if not steam_data: continue
 
-        yt_id = get_yt_id(g['yt_link'])
+    print(f"Added {new_count} new games. Total saved: {len(saved)}")
+
+    site_games = []
+    for appid, d in saved.items():
         game_info = {
-            'appid': appid, 'name': steam_data.get('name'), 'header_image': steam_data.get('header_image'),
-            'screenshots': steam_data.get('screenshots', []), 'tags': steam_data.get('tags', []),
-            'price': steam_data.get('price', ''), 'description': steam_data.get('description'),
-            'developers': steam_data.get('developers'), 'publishers': steam_data.get('publishers'),
-            'release_date': steam_data.get('release_date'), 'review_type': g['review_type'], 
-            'curator_desc': g['curator_desc'], 'yt_id': yt_id
+            'appid': appid, 'name': d.get('name'), 'header_image': d.get('header_image'),
+            'screenshots': d.get('screenshots', []), 'tags': d.get('tags', []),
+            'price': d.get('price', ''), 'description': d.get('description'),
+            'developers': d.get('developers'), 'publishers': d.get('publishers'),
+            'release_date': d.get('release_date'), 'review_type': d.get('review_type'),
+            'curator_desc': d.get('curator_desc'), 'yt_id': get_yt_id(d.get('yt_link')),
+            'first_seen': d.get('first_seen', 0),
         }
         site_games.append(game_info)
         game_tpl.stream(game=game_info).dump(os.path.join(OUTPUT_DIR, f"game_{appid}.html"))
 
+    site_games.sort(key=lambda g: g['first_seen'], reverse=True)  # newest first
     index_tpl.stream(games=site_games).dump(os.path.join(OUTPUT_DIR, "index.html"))
     playlist_tpl.stream(videos=playlist_videos).dump(os.path.join(OUTPUT_DIR, "playlist.html"))
-    print("Site generation complete.")
+    print(f"Site generation complete. Total games on site: {len(site_games)}")
 
 if __name__ == "__main__":
     reviews = fetch_curator_reviews()
