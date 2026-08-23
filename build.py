@@ -146,6 +146,7 @@ def load_saved_games():
                 except: pass
     return saved
 
+def build_site(reviews):
     now = time.time()
     new_count = 0
     for idx, r in enumerate(reviews):
