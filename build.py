@@ -146,12 +146,6 @@ def load_saved_games():
                 except: pass
     return saved
 
-def build_site(reviews):
-    saved = load_saved_games()
-    env = Environment(loader=FileSystemLoader('.'))
-    index_tpl = env.get_template('index_tpl.html')
-    game_tpl = env.get_template('game_tpl.html')
-
     now = time.time()
     new_count = 0
     for idx, r in enumerate(reviews):
@@ -160,20 +154,44 @@ def build_site(reviews):
             saved[appid]['review_type'] = r['review_type']
             saved[appid]['curator_desc'] = r['curator_desc']
             saved[appid]['yt_link'] = r['yt_link']
+            
+            # NEW: If we failed to fetch this game previously, try again now!
+            if saved[appid].get('name') == 'Unknown Game (Fetch Failed)':
+                print(f"Retrying fetch for previously failed game {appid}...")
+                steam = fetch_steam_data(appid)
+                if steam:
+                    steam['appid'] = appid
+                    steam['review_type'] = r['review_type']
+                    steam['curator_desc'] = r['curator_desc']
+                    steam['yt_link'] = r['yt_link']
+                    steam['first_seen'] = saved[appid].get('first_seen', now)
+                    saved[appid] = steam
         else:
             print(f"Fetching NEW game {appid}...")
             steam = fetch_steam_data(appid)
-            if not steam: continue
+            if not steam: 
+                # NEW: Create a placeholder so the game NEVER disappears from the site
+                print(f"WARNING: Could not fetch Steam data for {appid}. Saving basic info anyway!")
+                steam = {
+                    'appid': appid, 'name': 'Unknown Game (Fetch Failed)', 
+                    'description': '<p>Could not load details from Steam.</p>', 
+                    'short_desc': '', 'header_image': f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg",
+                    'screenshots': [], 'tags': [], 'developers': 'Unknown', 
+                    'publishers': 'Unknown', 'release_date': 'Unknown', 'price': 'See Steam'
+                }
+            
             steam['appid'] = appid
             steam['review_type'] = r['review_type']
             steam['curator_desc'] = r['curator_desc']
             steam['yt_link'] = r['yt_link']
             steam['first_seen'] = now - idx
             saved[appid] = steam
-            with open(os.path.join(DATA_DIR, f"{appid}.json"), 'w') as f:
-                json.dump(steam, f)
             new_count += 1
             time.sleep(1.5)
+            
+        # Save every single game permanently, even if it failed to fetch details
+        with open(os.path.join(DATA_DIR, f"{appid}.json"), 'w') as f:
+            json.dump(saved[appid], f)
 
     print(f"Added {new_count} new games. Total saved: {len(saved)}")
 
