@@ -147,6 +147,11 @@ def load_saved_games():
     return saved
 
 def build_site(reviews):
+    saved = load_saved_games()  # <--- This is the line that was missing!
+    env = Environment(loader=FileSystemLoader('.'))
+    index_tpl = env.get_template('index_tpl.html')
+    game_tpl = env.get_template('game_tpl.html')
+
     now = time.time()
     new_count = 0
     for idx, r in enumerate(reviews):
@@ -156,7 +161,7 @@ def build_site(reviews):
             saved[appid]['curator_desc'] = r['curator_desc']
             saved[appid]['yt_link'] = r['yt_link']
             
-            # NEW: If we failed to fetch this game previously, try again now!
+            # If we failed to fetch this game previously, try again now!
             if saved[appid].get('name') == 'Unknown Game (Fetch Failed)':
                 print(f"Retrying fetch for previously failed game {appid}...")
                 steam = fetch_steam_data(appid)
@@ -171,7 +176,6 @@ def build_site(reviews):
             print(f"Fetching NEW game {appid}...")
             steam = fetch_steam_data(appid)
             if not steam: 
-                # NEW: Create a placeholder so the game NEVER disappears from the site
                 print(f"WARNING: Could not fetch Steam data for {appid}. Saving basic info anyway!")
                 steam = {
                     'appid': appid, 'name': 'Unknown Game (Fetch Failed)', 
@@ -190,7 +194,6 @@ def build_site(reviews):
             new_count += 1
             time.sleep(1.5)
             
-        # Save every single game permanently, even if it failed to fetch details
         with open(os.path.join(DATA_DIR, f"{appid}.json"), 'w') as f:
             json.dump(saved[appid], f)
 
