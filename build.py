@@ -2,6 +2,7 @@ import os
 import json
 import time
 import requests
+import datetime
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
 
@@ -29,15 +30,40 @@ def parse_recommendations(soup):
         review_type = "Informational"
         if rec.find('span', class_='color_recommended'): review_type = "Recommended"
         elif rec.find('span', class_='color_not_recommended'): review_type = "Not Recommended"
+        
         desc_div = rec.find('div', class_='recommendation_desc')
         curator_desc = desc_div.get_text(strip=True) if desc_div else ""
+        
+        # --- NEW: Extract the actual review date from Steam's HTML ---
+        review_date_ts = 0
+        date_span = rec.find('span', class_='curator_review_date')
+        
+        # Try to get full date with year from description first
+        if curator_desc:
+            try:
+                ds = curator_desc.split(' - ')[0].strip()
+                dt = datetime.datetime.strptime(ds, "%d %B %Y")
+                review_date_ts = dt.timestamp()
+            except: pass
+            
+        # Fallback to date span (add current year)
+        if review_date_ts == 0 and date_span:
+            try:
+                ds = date_span.get_text(strip=True)
+                dt = datetime.datetime.strptime(f"{ds} {datetime.datetime.now().year}", "%d %B %Y")
+                review_date_ts = dt.timestamp()
+            except: pass
+        # -------------------------------------------------------------
+
         yt_link = ""
         readmore = rec.find('div', class_='recommendation_readmore')
         if readmore:
             yt_a = readmore.find('a')
             if yt_a and 'youtu' in yt_a.get('href', ''): yt_link = yt_a.get('href')
+            
         entries.append({'appid': appid, 'review_type': review_type,
-                        'curator_desc': curator_desc, 'yt_link': yt_link})
+                        'curator_desc': curator_desc, 'yt_link': yt_link,
+                        'review_date_ts': review_date_ts})
     return entries
 
 def fetch_curator_reviews():
@@ -182,16 +208,23 @@ def build_site(reviews):
     index_tpl = env.get_template('index_tpl.html')
     game_tpl = env.get_template('game_tpl.html')
 
-    now = time.time()
+        now = time.time()
     new_count = 0
     for idx, r in enumerate(reviews):
         appid = r['appid']
+        
+        # Use the actual review date for sorting. Fallback to current time if missing.
+        sort_ts = r.get('review_date_ts', 0)
+        if sort_ts == 0:
+            sort_ts = now - idx
+            
         if appid in saved:
             saved[appid]['review_type'] = r['review_type']
             saved[appid]['curator_desc'] = r['curator_desc']
             saved[appid]['yt_link'] = r['yt_link']
+            saved[appid]['first_seen'] = sort_ts  # Update order based on real review date
             
-            # If we failed to fetch this game previously, try again now!
+            # Retry logic
             if saved[appid].get('name') == 'Unknown Game (Fetch Failed)':
                 print(f"Retrying fetch for previously failed game {appid}...")
                 steam = fetch_steam_data(appid)
@@ -200,7 +233,7 @@ def build_site(reviews):
                     steam['review_type'] = r['review_type']
                     steam['curator_desc'] = r['curator_desc']
                     steam['yt_link'] = r['yt_link']
-                    steam['first_seen'] = saved[appid].get('first_seen', now)
+                    steam['first_seen'] = sort_ts
                     saved[appid] = steam
         else:
             print(f"Fetching NEW game {appid}...")
@@ -219,14 +252,14 @@ def build_site(reviews):
             steam['review_type'] = r['review_type']
             steam['curator_desc'] = r['curator_desc']
             steam['yt_link'] = r['yt_link']
-            steam['first_seen'] = now - idx
+            steam['first_seen'] = sort_ts
             saved[appid] = steam
             new_count += 1
             time.sleep(1.5)
             
         with open(os.path.join(DATA_DIR, f"{appid}.json"), 'w') as f:
             json.dump(saved[appid], f)
-
+            
     print(f"Added {new_count} new games. Total saved: {len(saved)}")
 
     site_games = []
