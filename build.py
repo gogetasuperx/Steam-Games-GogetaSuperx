@@ -50,22 +50,52 @@ def fetch_curator_reviews():
                 seen[e['appid']] = e
                 ordered.append(e['appid'])
 
-    for page in range(1, 21): 
+    session = requests.Session()
+    session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
+    session.cookies.set('birthtime', '283993200', domain='store.steampowered.com', path='/')
+    
+    # Load the main page first to establish session cookies
+    try:
+        print("Establishing Steam session...")
+        session.get(CURATOR_URL, headers=HEADERS, timeout=15)
+    except Exception as e:
+        print(f"Warning: Could not load main curator page: {e}")
+
+    # Use the hidden Steam API that powers the infinite scroll!
+    ajax_url = f"{CURATOR_URL}ajaxgetfilteredrecommendations/render/"
+    start = 0
+    count = 50 
+    
+    # Grab up to 500 newest reviews per run (10 pages of 50)
+    # This guarantees we catch every single new post, no matter how many you do.
+    while start < 500: 
         try:
-            url = f"{CURATOR_URL}?p={page}"
-            print(f"Fetching HTML page {page}...")
-            res = requests.get(url, headers=HEADERS, timeout=15)
-            if res.status_code != 200: continue
+            params = {'query': '', 'start': start, 'count': count, 'sort': 'recent'}
+            print(f"Fetching AJAX recommendations start={start}...")
+            res = session.get(ajax_url, params=params, headers=HEADERS, timeout=15)
             
-            entries = parse_recommendations(BeautifulSoup(res.text, 'html.parser'))
-            if not entries: 
-                print(f"End of reviews reached on page {page}.")
+            if res.status_code != 200:
+                print(f"AJAX failed with status {res.status_code}, stopping.")
+                break
+                
+            data = res.json()
+            html = data.get('results_html', '')
+            if not html:
+                print("End of reviews reached (empty HTML).")
+                break
+                
+            entries = parse_recommendations(BeautifulSoup(html, 'html.parser'))
+            if not entries:
+                print("End of reviews reached (no entries parsed).")
                 break
                 
             add(entries)
-            time.sleep(2)
+            start += count
+            time.sleep(2) # Polite delay
+            
         except Exception as e:
-            print(f"HTML page {page} error: {e}")
+            print(f"AJAX page start={start} error: {e}")
+            break
 
     print(f"Collected {len(ordered)} unique reviews this run")
     return [seen[a] for a in ordered]
