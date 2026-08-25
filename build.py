@@ -34,7 +34,7 @@ def parse_recommendations(soup):
         desc_div = rec.find('div', class_='recommendation_desc')
         curator_desc = desc_div.get_text(strip=True) if desc_div else ""
         
-        # --- NEW: Extract the actual review date from Steam's HTML ---
+        # --- Extract the actual review date from Steam's HTML ---
         review_date_ts = 0
         date_span = rec.find('span', class_='curator_review_date')
         
@@ -80,20 +80,16 @@ def fetch_curator_reviews():
     session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
     session.cookies.set('birthtime', '283993200', domain='store.steampowered.com', path='/')
     
-    # Load the main page first to establish session cookies
     try:
         print("Establishing Steam session...")
         session.get(CURATOR_URL, headers=HEADERS, timeout=15)
     except Exception as e:
         print(f"Warning: Could not load main curator page: {e}")
 
-    # Use the hidden Steam API that powers the infinite scroll!
     ajax_url = f"{CURATOR_URL}ajaxgetfilteredrecommendations/render/"
     start = 0
     count = 50 
     
-    # Grab up to 500 newest reviews per run (10 pages of 50)
-    # This guarantees we catch every single new post, no matter how many you do.
     while start < 500: 
         try:
             params = {'query': '', 'start': start, 'count': count, 'sort': 'recent'}
@@ -117,7 +113,7 @@ def fetch_curator_reviews():
                 
             add(entries)
             start += count
-            time.sleep(2) # Polite delay
+            time.sleep(2)
             
         except Exception as e:
             print(f"AJAX page start={start} error: {e}")
@@ -203,12 +199,12 @@ def load_saved_games():
     return saved
 
 def build_site(reviews):
-    saved = load_saved_games()  # <--- This is the line that was missing!
+    saved = load_saved_games()
     env = Environment(loader=FileSystemLoader('.'))
     index_tpl = env.get_template('index_tpl.html')
     game_tpl = env.get_template('game_tpl.html')
 
-        now = time.time()
+    now = time.time()
     new_count = 0
     for idx, r in enumerate(reviews):
         appid = r['appid']
@@ -259,7 +255,7 @@ def build_site(reviews):
             
         with open(os.path.join(DATA_DIR, f"{appid}.json"), 'w') as f:
             json.dump(saved[appid], f)
-            
+
     print(f"Added {new_count} new games. Total saved: {len(saved)}")
 
     site_games = []
