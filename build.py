@@ -11,6 +11,7 @@ CURATOR_URL = f"https://store.steampowered.com/curator/{CURATOR_ID}/"
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 DATA_DIR = "data"
 OUTPUT_DIR = "public"
+FORCE_FETCH_FILE = "force_fetch.txt"
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -34,11 +35,9 @@ def parse_recommendations(soup):
         desc_div = rec.find('div', class_='recommendation_desc')
         curator_desc = desc_div.get_text(strip=True) if desc_div else ""
         
-        # --- Extract the actual review date from Steam's HTML ---
         review_date_ts = 0
         date_span = rec.find('span', class_='curator_review_date')
         
-        # Try to get full date with year from description first
         if curator_desc:
             try:
                 ds = curator_desc.split(' - ')[0].strip()
@@ -46,14 +45,12 @@ def parse_recommendations(soup):
                 review_date_ts = dt.timestamp()
             except: pass
             
-        # Fallback to date span (add current year)
         if review_date_ts == 0 and date_span:
             try:
                 ds = date_span.get_text(strip=True)
                 dt = datetime.datetime.strptime(f"{ds} {datetime.datetime.now().year}", "%d %B %Y")
                 review_date_ts = dt.timestamp()
             except: pass
-        # -------------------------------------------------------------
 
         yt_link = ""
         readmore = rec.find('div', class_='recommendation_readmore')
@@ -88,9 +85,10 @@ def fetch_curator_reviews():
 
     ajax_url = f"{CURATOR_URL}ajaxgetfilteredrecommendations/render/"
     start = 0
-    count = 50 
+    count = 50
     
-    while start < 500: 
+    # Increased from 500 to 1000 to catch edge cases
+    while start < 1000: 
         try:
             params = {'query': '', 'start': start, 'count': count, 'sort': 'recent'}
             print(f"Fetching AJAX recommendations start={start}...")
@@ -120,6 +118,7 @@ def fetch_curator_reviews():
             break
 
     print(f"Collected {len(ordered)} unique reviews this run")
+    print(f"Sample appids found: {ordered[:10]}")
     return [seen[a] for a in ordered]
 
 def fetch_steam_data(appid):
@@ -198,18 +197,48 @@ def load_saved_games():
                 except: pass
     return saved
 
+def load_force_fetch():
+    """Load appids that should be force-fetched this run."""
+    appids = []
+    if os.path.exists(FORCE_FETCH_FILE):
+        with open(FORCE_FETCH_FILE, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and line.isdigit():
+                    appids.append(line)
+    return appids
+
+def clear_force_fetch():
+    """Clear the force fetch file after processing."""
+    if os.path.exists(FORCE_FETCH_FILE):
+        os.remove(FORCE_FETCH_FILE)
+
 def build_site(reviews):
     saved = load_saved_games()
+    force_fetch = load_force_fetch()
     env = Environment(loader=FileSystemLoader('.'))
     index_tpl = env.get_template('index_tpl.html')
     game_tpl = env.get_template('game_tpl.html')
 
     now = time.time()
     new_count = 0
-    for idx, r in enumerate(reviews):
-        appid = r['appid']
-        
-        # Use the actual review date for sorting. Fallback to current time if missing.
+    
+    # Build a dict for quick lookup
+    review_dict = {r['appid']: r for r in reviews}
+    
+    # Add force-fetch appids to the list if not already there
+    for appid in force_fetch:
+        if appid not in review_dict:
+            print(f"Force-fetching missing appid: {appid}")
+            review_dict[appid] = {
+                'appid': appid,
+                'review_type': 'Informational',
+                'curator_desc': '',
+                'yt_link': '',
+                'review_date_ts': now
+            }
+    
+    for idx, (appid, r) in enumerate(review_dict.items()):
         sort_ts = r.get('review_date_ts', 0)
         if sort_ts == 0:
             sort_ts = now - idx
@@ -218,10 +247,10 @@ def build_site(reviews):
             saved[appid]['review_type'] = r['review_type']
             saved[appid]['curator_desc'] = r['curator_desc']
             saved[appid]['yt_link'] = r['yt_link']
-            saved[appid]['first_seen'] = sort_ts  # Update order based on real review date
+            saved[appid]['first_seen'] = sort_ts
             
-            # Retry logic
-            if saved[appid].get('name') == 'Unknown Game (Fetch Failed)':
+            # Retry if previous fetch failed
+            if saved[appid].get('name') in ('Unknown Game (Fetch Failed)', 'Unknown Game', None):
                 print(f"Retrying fetch for previously failed game {appid}...")
                 steam = fetch_steam_data(appid)
                 if steam:
@@ -275,6 +304,10 @@ def build_site(reviews):
     site_games.sort(key=lambda g: g['first_seen'], reverse=True)
     index_tpl.stream(games=site_games).dump(os.path.join(OUTPUT_DIR, "index.html"))
     print(f"Site generation complete. Total games on site: {len(site_games)}")
+    
+    if force_fetch:
+        clear_force_fetch()
+        print(f"Cleared force_fetch.txt after processing {len(force_fetch)} appids.")
 
 if __name__ == "__main__":
     reviews = fetch_curator_reviews()
