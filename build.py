@@ -11,7 +11,6 @@ CURATOR_URL = f"https://store.steampowered.com/curator/{CURATOR_ID}/"
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 DATA_DIR = "data"
 OUTPUT_DIR = "public"
-FORCE_FETCH_FILE = "force_fetch.txt"
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -22,9 +21,9 @@ def get_yt_id(url):
     elif 'youtube.com/watch?v=' in url: return url.split('v=')[1].split('&')[0]
     return None
 
-def parse_recommendations(soup):
+def parse_recommendations(soup, start_index):
     entries = []
-    for rec in soup.find_all('div', class_='recommendation'):
+    for offset, rec in enumerate(soup.find_all('div', class_='recommendation')):
         a_tag = rec.find('a', attrs={'data-ds-appid': True})
         if not a_tag: continue
         appid = a_tag.get('data-ds-appid')
@@ -58,20 +57,23 @@ def parse_recommendations(soup):
             yt_a = readmore.find('a')
             if yt_a and 'youtu' in yt_a.get('href', ''): yt_link = yt_a.get('href')
             
+        # Use Steam's list position as a fallback rank for sorting
         entries.append({'appid': appid, 'review_type': review_type,
                         'curator_desc': curator_desc, 'yt_link': yt_link,
-                        'review_date_ts': review_date_ts})
+                        'review_date_ts': review_date_ts,
+                        'review_rank': start_index + offset})
     return entries
 
 def fetch_curator_reviews():
     seen = {}
     ordered = []
 
-    def add(entries):
-        for e in entries:
-            if e['appid'] not in seen:
-                seen[e['appid']] = e
-                ordered.append(e['appid'])
+    def add(entries, start_index):
+        for e in parse_recommendations(BeautifulSoup(entries, 'html.parser'), start_index):
+            appid = e['appid']
+            if appid not in seen:
+                seen[appid] = e
+                ordered.append(appid)
 
     session = requests.Session()
     session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
@@ -86,13 +88,13 @@ def fetch_curator_reviews():
     ajax_url = f"{CURATOR_URL}ajaxgetfilteredrecommendations/render/"
     start = 0
     count = 50
+    max_reviews = 2000 
     
-    # Increased from 500 to 1000 to catch edge cases
-    while start < 1000: 
+    while start < max_reviews: 
         try:
             params = {'query': '', 'start': start, 'count': count, 'sort': 'recent'}
             print(f"Fetching AJAX recommendations start={start}...")
-            res = session.get(ajax_url, params=params, headers=HEADERS, timeout=15)
+            res = session.get(ajax_url, params=params, headers=HEADERS, timeout=20)
             
             if res.status_code != 200:
                 print(f"AJAX failed with status {res.status_code}, stopping.")
@@ -104,21 +106,27 @@ def fetch_curator_reviews():
                 print("End of reviews reached (empty HTML).")
                 break
                 
-            entries = parse_recommendations(BeautifulSoup(html, 'html.parser'))
+            entries = parse_recommendations(BeautifulSoup(html, 'html.parser'), start)
             if not entries:
                 print("End of reviews reached (no entries parsed).")
                 break
                 
-            add(entries)
+            for e in entries:
+                appid = e['appid']
+                if appid not in seen:
+                    seen[appid] = e
+                    ordered.append(appid)
+                    
+            print(f"Parsed {len(entries)} entries from start={start}. Total unique so far: {len(ordered)}")
             start += count
-            time.sleep(2)
+            time.sleep(0.75)
             
         except Exception as e:
             print(f"AJAX page start={start} error: {e}")
             break
 
     print(f"Collected {len(ordered)} unique reviews this run")
-    print(f"Sample appids found: {ordered[:10]}")
+    print(f"Newest appids found this run: {ordered[:15]}")
     return [seen[a] for a in ordered]
 
 def fetch_steam_data(appid):
@@ -197,25 +205,8 @@ def load_saved_games():
                 except: pass
     return saved
 
-def load_force_fetch():
-    """Load appids that should be force-fetched this run."""
-    appids = []
-    if os.path.exists(FORCE_FETCH_FILE):
-        with open(FORCE_FETCH_FILE, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and line.isdigit():
-                    appids.append(line)
-    return appids
-
-def clear_force_fetch():
-    """Clear the force fetch file after processing."""
-    if os.path.exists(FORCE_FETCH_FILE):
-        os.remove(FORCE_FETCH_FILE)
-
 def build_site(reviews):
     saved = load_saved_games()
-    force_fetch = load_force_fetch()
     env = Environment(loader=FileSystemLoader('.'))
     index_tpl = env.get_template('index_tpl.html')
     game_tpl = env.get_template('game_tpl.html')
@@ -223,34 +214,24 @@ def build_site(reviews):
     now = time.time()
     new_count = 0
     
-    # Build a dict for quick lookup
-    review_dict = {r['appid']: r for r in reviews}
-    
-    # Add force-fetch appids to the list if not already there
-    for appid in force_fetch:
-        if appid not in review_dict:
-            print(f"Force-fetching missing appid: {appid}")
-            review_dict[appid] = {
-                'appid': appid,
-                'review_type': 'Informational',
-                'curator_desc': '',
-                'yt_link': '',
-                'review_date_ts': now
-            }
-    
-    for idx, (appid, r) in enumerate(review_dict.items()):
+    for idx, r in enumerate(reviews):
+        appid = r['appid']
+        
+        # FIX: If date parsing fails, use the Steam list rank to place it correctly,
+        # instead of accidentally throwing it to the top with "now".
         sort_ts = r.get('review_date_ts', 0)
         if sort_ts == 0:
-            sort_ts = now - idx
+            rank = r.get('review_rank', idx)
+            sort_ts = now - (rank * 8640) # subtracts time based on position
             
         if appid in saved:
             saved[appid]['review_type'] = r['review_type']
             saved[appid]['curator_desc'] = r['curator_desc']
             saved[appid]['yt_link'] = r['yt_link']
-            saved[appid]['first_seen'] = sort_ts
+            saved[appid]['first_seen'] = sort_ts  
+            saved[appid]['review_rank'] = r.get('review_rank', idx)
             
-            # Retry if previous fetch failed
-            if saved[appid].get('name') in ('Unknown Game (Fetch Failed)', 'Unknown Game', None):
+            if saved[appid].get('name') == 'Unknown Game (Fetch Failed)':
                 print(f"Retrying fetch for previously failed game {appid}...")
                 steam = fetch_steam_data(appid)
                 if steam:
@@ -259,6 +240,7 @@ def build_site(reviews):
                     steam['curator_desc'] = r['curator_desc']
                     steam['yt_link'] = r['yt_link']
                     steam['first_seen'] = sort_ts
+                    steam['review_rank'] = r.get('review_rank', idx)
                     saved[appid] = steam
         else:
             print(f"Fetching NEW game {appid}...")
@@ -278,6 +260,7 @@ def build_site(reviews):
             steam['curator_desc'] = r['curator_desc']
             steam['yt_link'] = r['yt_link']
             steam['first_seen'] = sort_ts
+            steam['review_rank'] = r.get('review_rank', idx)
             saved[appid] = steam
             new_count += 1
             time.sleep(1.5)
@@ -297,17 +280,21 @@ def build_site(reviews):
             'release_date': d.get('release_date'), 'review_type': d.get('review_type'),
             'curator_desc': d.get('curator_desc'), 'yt_id': get_yt_id(d.get('yt_link')),
             'first_seen': d.get('first_seen', 0),
+            'review_rank': d.get('review_rank', 999999),
         }
         site_games.append(game_info)
         game_tpl.stream(game=game_info).dump(os.path.join(OUTPUT_DIR, f"game_{appid}.html"))
 
-    site_games.sort(key=lambda g: g['first_seen'], reverse=True)
+    # Sort by review date first (newest to oldest), then by Steam list rank to break ties
+    site_games.sort(
+        key=lambda g: (
+            -(g.get('first_seen') or 0),
+            g.get('review_rank', 999999)
+        )
+    )
+
     index_tpl.stream(games=site_games).dump(os.path.join(OUTPUT_DIR, "index.html"))
     print(f"Site generation complete. Total games on site: {len(site_games)}")
-    
-    if force_fetch:
-        clear_force_fetch()
-        print(f"Cleared force_fetch.txt after processing {len(force_fetch)} appids.")
 
 if __name__ == "__main__":
     reviews = fetch_curator_reviews()
