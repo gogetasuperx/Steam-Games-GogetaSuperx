@@ -19,6 +19,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Paris   # GMT+1 timezone. Change to your region if needed.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
