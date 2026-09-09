@@ -20,18 +20,27 @@
         .filter-btn { padding: 6px 14px; border-radius: 9999px; font-weight: 600; font-size: 0.8rem; background: #1e293b; color: #94a3b8; border: 1px solid #334155; transition: all 0.2s; cursor: pointer; }
         .filter-btn:hover { color: white; border-color: #3b82f6; }
         .filter-active { background: #3b82f6; color: white; border-color: #3b82f6; }
+        .rss-icon { transition: all 0.2s; }
+        .rss-icon:hover { transform: scale(1.1); color: #f97316; }
     </style>
 </head>
 <body class="min-h-screen">
     <header class="bg-slate-900 border-b border-slate-800 py-6 shadow-lg">
         <div class="container mx-auto px-4">
-            <h1 class="text-3xl font-bold text-blue-400 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                GogetaSuperx Steam Games
-            </h1>
+            <div class="flex items-center justify-between flex-wrap gap-4">
+                <div class="flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <h1 class="text-3xl font-bold text-blue-400 ml-2">GogetaSuperx Steam Games</h1>
+                </div>
+                <a href="rss.xml" class="rss-icon text-slate-400 hover:text-orange-500" title="Subscribe to RSS Feed" aria-label="RSS Feed">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6.503 20.752c0 1.794-1.456 3.248-3.251 3.248-1.796 0-3.252-1.454-3.252-3.248 0-1.794 1.456-3.248 3.252-3.248 1.795.001 3.251 1.454 3.251 3.248zm-6.503-12.572v4.811c6.05.062 10.96 4.966 11.022 11.009h4.817c-.062-8.742-7.115-15.783-15.839-15.82zm0-8.18v4.819c12.951.115 23.457 10.607 23.587 23.587h4.413c-.131-15.693-12.719-28.268-28-28.406z"/>
+                    </svg>
+                </a>
+            </div>
             <p class="text-slate-400 mt-1">New Free Games Demos Early Access</p>
         </div>
     </header>
