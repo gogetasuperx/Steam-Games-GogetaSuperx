@@ -3,11 +3,14 @@ import json
 import time
 import requests
 import datetime
+from email.utils import format_datetime
+from xml.sax.saxutils import escape
 from bs4 import BeautifulSoup
 from jinja2 import Environment, FileSystemLoader
 
 CURATOR_ID = "44917508"
 CURATOR_URL = f"https://store.steampowered.com/curator/{CURATOR_ID}/"
+SITE_URL = "https://gogetasuperx.github.io/Steam-Games-GogetaSuperx"
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 DATA_DIR = "data"
 OUTPUT_DIR = "public"
@@ -57,7 +60,6 @@ def parse_recommendations(soup, start_index):
             yt_a = readmore.find('a')
             if yt_a and 'youtu' in yt_a.get('href', ''): yt_link = yt_a.get('href')
             
-        # Use Steam's list position as a fallback rank for sorting
         entries.append({'appid': appid, 'review_type': review_type,
                         'curator_desc': curator_desc, 'yt_link': yt_link,
                         'review_date_ts': review_date_ts,
@@ -67,13 +69,6 @@ def parse_recommendations(soup, start_index):
 def fetch_curator_reviews():
     seen = {}
     ordered = []
-
-    def add(entries, start_index):
-        for e in parse_recommendations(BeautifulSoup(entries, 'html.parser'), start_index):
-            appid = e['appid']
-            if appid not in seen:
-                seen[appid] = e
-                ordered.append(appid)
 
     session = requests.Session()
     session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
@@ -205,6 +200,47 @@ def load_saved_games():
                 except: pass
     return saved
 
+def generate_rss(site_games):
+    # site_games is already sorted newest-first; include the latest 50 in the feed
+    items = []
+    for g in site_games[:50]:
+        ts = g.get('first_seen') or 0
+        dt = datetime.datetime.fromtimestamp(ts).astimezone()
+        pub = format_datetime(dt)
+        title = escape(g.get('name') or 'Unknown Game')
+        link = f"{SITE_URL}/game_{g['appid']}.html"
+        note = g.get('curator_desc') or ''
+        desc_text = f"{g.get('review_type', 'Informational')} review. {note}".strip()
+        desc = escape(desc_text)
+        items.append(
+            "    <item>\n"
+            f"      <title>{title}</title>\n"
+            f"      <link>{link}</link>\n"
+            f"      <guid isPermaLink=\"true\">{link}</guid>\n"
+            f"      <pubDate>{pub}</pubDate>\n"
+            f"      <description>{desc}</description>\n"
+            "    </item>"
+        )
+
+    now_pub = format_datetime(datetime.datetime.now().astimezone())
+    rss = (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n"
+        "  <channel>\n"
+        f"    <title>GogetaSuperx Steam Games</title>\n"
+        f"    <link>{SITE_URL}/</link>\n"
+        "    <description>New Free Games Demos Early Access - latest Steam curator reviews by GogetaSuperx</description>\n"
+        "    <language>en</language>\n"
+        f"    <lastBuildDate>{now_pub}</lastBuildDate>\n"
+        f"    <atom:link href=\"{SITE_URL}/rss.xml\" rel=\"self\" type=\"application/rss+xml\"/>\n"
+        + "\n".join(items) + "\n"
+        "  </channel>\n"
+        "</rss>\n"
+    )
+    with open(os.path.join(OUTPUT_DIR, "rss.xml"), "w", encoding="utf-8") as f:
+        f.write(rss)
+    print(f"RSS feed generated with {len(items)} items.")
+
 def build_site(reviews):
     saved = load_saved_games()
     env = Environment(loader=FileSystemLoader('.'))
@@ -217,12 +253,10 @@ def build_site(reviews):
     for idx, r in enumerate(reviews):
         appid = r['appid']
         
-        # FIX: If date parsing fails, use the Steam list rank to place it correctly,
-        # instead of accidentally throwing it to the top with "now".
         sort_ts = r.get('review_date_ts', 0)
         if sort_ts == 0:
             rank = r.get('review_rank', idx)
-            sort_ts = now - (rank * 8640) # subtracts time based on position
+            sort_ts = now - (rank * 8640)
             
         if appid in saved:
             saved[appid]['review_type'] = r['review_type']
@@ -285,7 +319,6 @@ def build_site(reviews):
         site_games.append(game_info)
         game_tpl.stream(game=game_info).dump(os.path.join(OUTPUT_DIR, f"game_{appid}.html"))
 
-    # Sort by review date first (newest to oldest), then by Steam list rank to break ties
     site_games.sort(
         key=lambda g: (
             -(g.get('first_seen') or 0),
@@ -294,6 +327,7 @@ def build_site(reviews):
     )
 
     index_tpl.stream(games=site_games).dump(os.path.join(OUTPUT_DIR, "index.html"))
+    generate_rss(site_games)
     print(f"Site generation complete. Total games on site: {len(site_games)}")
 
 if __name__ == "__main__":
