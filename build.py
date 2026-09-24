@@ -18,26 +18,15 @@ HEADERS = {
 DATA_DIR = "data"
 OUTPUT_DIR = "public"
 
-# Diagnostic target. Set to "" once the missing-review problem is confirmed fixed.
-DIAG_APPID = "4439670"
-
-# Steam login cookies, loaded from GitHub Secrets. Empty if not configured.
-STEAM_SESSIONID = os.environ.get('STEAM_SESSIONID', '').strip()
-STEAM_LOGIN_SECURE = os.environ.get('STEAM_LOGIN_SECURE', '').strip()
-
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def set_session_cookies(session):
-    # Show mature content
+    # Show mature / age-gated content (no login required)
     session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
     session.cookies.set('wants_mature_content', '1', domain='store.steampowered.com', path='/')
     session.cookies.set('birthtime', '283993200', domain='store.steampowered.com', path='/')
     session.cookies.set('lastagecheckage', '1-0-1979', domain='store.steampowered.com', path='/')
-    # Authenticated session (only if secrets are configured)
-    if STEAM_SESSIONID and STEAM_LOGIN_SECURE:
-        session.cookies.set('sessionid', STEAM_SESSIONID, domain='.steampowered.com', path='/')
-        session.cookies.set('steamLoginSecure', STEAM_LOGIN_SECURE, domain='.steampowered.com', path='/')
     return session
 
 def get_yt_id(url):
@@ -87,33 +76,23 @@ def fetch_curator_reviews():
     ordered = []
     def add_entries(entries, source_name):
         added = 0
-        found_target = False
         for e in entries:
             appid = e['appid']
-            if appid == DIAG_APPID:
-                found_target = True
             if appid not in seen:
                 seen[appid] = e
                 ordered.append(appid)
                 added += 1
         print(f"{source_name}: parsed {len(entries)} entries, added {added} new. Total unique: {len(ordered)}")
-        if found_target:
-            print(f"DIAG: {DIAG_APPID} present in {source_name}.")
-        return found_target
+        return added
 
     session = requests.Session()
     session = set_session_cookies(session)
-
-    auth_active = bool(STEAM_SESSIONID and STEAM_LOGIN_SECURE)
-    print(f"AUTH: login cookies {'ACTIVE - browsing as your Steam account' if auth_active else 'NOT configured (anonymous mode)'}")
-
     try:
         print("Establishing Steam session...")
         session.get(CURATOR_URL, headers=HEADERS, timeout=15)
     except Exception as e:
         print(f"Warning: Could not load main curator page: {e}")
 
-    target_found = False
     ajax_url = f"{CURATOR_URL}ajaxgetfilteredrecommendations/render/"
     start = 0
     count = 50
@@ -127,10 +106,7 @@ def fetch_curator_reviews():
                 break
             data = res.json()
             if start == 0:
-                total = data.get('total_count')
-                print(f"AJAX metadata: success={data.get('success')}, total_count={total}, pagesize={data.get('pagesize')}")
-                if auth_active and isinstance(total, int) and total < 1990:
-                    print("WARNING: Auth cookies are set but total_count is still low. Cookies may have expired, or Steam may not be applying your account preferences.")
+                print(f"AJAX metadata: success={data.get('success')}, total_count={data.get('total_count')}, pagesize={data.get('pagesize')}")
             html = data.get('results_html', '')
             if not html:
                 print("End of reviews reached (empty HTML).")
@@ -139,15 +115,14 @@ def fetch_curator_reviews():
             if not entries:
                 print("End of reviews reached (no entries parsed).")
                 break
-            found = add_entries(entries, f"AJAX start={start}")
-            if found:
-                target_found = True
+            add_entries(entries, f"AJAX start={start}")
             start += count
             time.sleep(0.75)
         except Exception as e:
             print(f"AJAX page start={start} error: {e}")
             break
 
+    # Safety-net fallback: also read the first few HTML pages
     print("Merging HTML fallback pages 1-5...")
     for page in range(1, 6):
         try:
@@ -160,17 +135,13 @@ def fetch_curator_reviews():
             if not entries:
                 print(f"HTML page {page} had no entries.")
                 break
-            found = add_entries(entries, f"HTML page={page}")
-            if found:
-                target_found = True
+            add_entries(entries, f"HTML page={page}")
             time.sleep(1)
         except Exception as e:
             print(f"HTML page {page} error: {e}")
             break
 
     print(f"Collected {len(ordered)} unique reviews this run")
-    if DIAG_APPID:
-        print(f"DIAG FINAL: {DIAG_APPID} was {'COLLECTED - FIX WORKS' if target_found else 'NOT collected'}.")
     return [seen[a] for a in ordered]
 
 def fetch_steam_data(appid):
