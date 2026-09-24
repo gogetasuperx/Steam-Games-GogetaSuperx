@@ -37,9 +37,6 @@ jobs:
 
       - name: Run build script
         run: python build.py
-        env:
-          STEAM_SESSIONID: ${{ secrets.STEAM_SESSIONID }}
-          STEAM_LOGIN_SECURE: ${{ secrets.STEAM_LOGIN_SECURE }}
 
       - name: Save updated game data back to the repo
         uses: stefanzweifel/git-auto-commit-action@v5
