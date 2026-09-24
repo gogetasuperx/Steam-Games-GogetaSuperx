@@ -11,12 +11,29 @@ from jinja2 import Environment, FileSystemLoader
 CURATOR_ID = "44917508"
 CURATOR_URL = f"https://store.steampowered.com/curator/{CURATOR_ID}/"
 SITE_URL = "https://gogetasuperx.github.io/Steam-Games-GogetaSuperx"
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+
+# Broad Accept-Language header so Steam doesn't hide games based on language
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh-TW;q=0.7,zh;q=0.6,ja;q=0.5,ko;q=0.4,ru;q=0.3,de;q=0.2,fr;q=0.1,*;q=0.1',
+}
+
 DATA_DIR = "data"
 OUTPUT_DIR = "public"
 
+# Temporary diagnostic target. Set to "" to disable.
+DIAG_APPID = "4439670"
+
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+def set_session_cookies(session):
+    """Cookies that tell Steam to show all content and all languages."""
+    session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
+    session.cookies.set('wants_mature_content', '1', domain='store.steampowered.com', path='/')
+    session.cookies.set('birthtime', '283993200', domain='store.steampowered.com', path='/')
+    session.cookies.set('lastagecheckage', '1-0-1979', domain='store.steampowered.com', path='/')
+    return session
 
 def get_yt_id(url):
     if not url: return None
@@ -30,23 +47,24 @@ def parse_recommendations(soup, start_index):
         a_tag = rec.find('a', attrs={'data-ds-appid': True})
         if not a_tag: continue
         appid = a_tag.get('data-ds-appid')
+
         review_type = "Informational"
         if rec.find('span', class_='color_recommended'): review_type = "Recommended"
         elif rec.find('span', class_='color_not_recommended'): review_type = "Not Recommended"
-        
+
         desc_div = rec.find('div', class_='recommendation_desc')
         curator_desc = desc_div.get_text(strip=True) if desc_div else ""
-        
+
         review_date_ts = 0
         date_span = rec.find('span', class_='curator_review_date')
-        
+
         if curator_desc:
             try:
                 ds = curator_desc.split(' - ')[0].strip()
                 dt = datetime.datetime.strptime(ds, "%d %B %Y")
                 review_date_ts = dt.timestamp()
             except: pass
-            
+
         if review_date_ts == 0 and date_span:
             try:
                 ds = date_span.get_text(strip=True)
@@ -59,75 +77,123 @@ def parse_recommendations(soup, start_index):
         if readmore:
             yt_a = readmore.find('a')
             if yt_a and 'youtu' in yt_a.get('href', ''): yt_link = yt_a.get('href')
-            
-        entries.append({'appid': appid, 'review_type': review_type,
-                        'curator_desc': curator_desc, 'yt_link': yt_link,
-                        'review_date_ts': review_date_ts,
-                        'review_rank': start_index + offset})
+
+        entries.append({
+            'appid': appid,
+            'review_type': review_type,
+            'curator_desc': curator_desc,
+            'yt_link': yt_link,
+            'review_date_ts': review_date_ts,
+            'review_rank': start_index + offset
+        })
     return entries
 
 def fetch_curator_reviews():
     seen = {}
     ordered = []
 
+    def add_entries(entries, source_name):
+        added = 0
+        found_target = False
+        for e in entries:
+            appid = e['appid']
+            if appid == DIAG_APPID:
+                found_target = True
+            if appid not in seen:
+                seen[appid] = e
+                ordered.append(appid)
+                added += 1
+        print(f"{source_name}: parsed {len(entries)} entries, added {added} new. Total unique: {len(ordered)}")
+        if found_target:
+            print(f"DIAG: {DIAG_APPID} present in {source_name}.")
+        return found_target
+
     session = requests.Session()
-    session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
-    session.cookies.set('birthtime', '283993200', domain='store.steampowered.com', path='/')
-    
+    session = set_session_cookies(session)
+
     try:
         print("Establishing Steam session...")
         session.get(CURATOR_URL, headers=HEADERS, timeout=15)
     except Exception as e:
         print(f"Warning: Could not load main curator page: {e}")
 
+    target_found = False
+
+    # Primary AJAX endpoint
     ajax_url = f"{CURATOR_URL}ajaxgetfilteredrecommendations/render/"
     start = 0
     count = 50
-    max_reviews = 2000 
-    
-    while start < max_reviews: 
+    max_reviews = 2000
+
+    while start < max_reviews:
         try:
             params = {'query': '', 'start': start, 'count': count, 'sort': 'recent'}
-            print(f"Fetching AJAX recommendations start={start}...")
             res = session.get(ajax_url, params=params, headers=HEADERS, timeout=20)
-            
+
             if res.status_code != 200:
                 print(f"AJAX failed with status {res.status_code}, stopping.")
                 break
-                
+
             data = res.json()
+            if start == 0:
+                print(f"AJAX metadata: success={data.get('success')}, total_count={data.get('total_count')}, pagesize={data.get('pagesize')}")
+
             html = data.get('results_html', '')
             if not html:
                 print("End of reviews reached (empty HTML).")
                 break
-                
+
             entries = parse_recommendations(BeautifulSoup(html, 'html.parser'), start)
             if not entries:
                 print("End of reviews reached (no entries parsed).")
                 break
-                
-            for e in entries:
-                appid = e['appid']
-                if appid not in seen:
-                    seen[appid] = e
-                    ordered.append(appid)
-                    
-            print(f"Parsed {len(entries)} entries from start={start}. Total unique so far: {len(ordered)}")
+
+            found = add_entries(entries, f"AJAX start={start}")
+            if found:
+                target_found = True
+
             start += count
             time.sleep(0.75)
-            
+
         except Exception as e:
             print(f"AJAX page start={start} error: {e}")
             break
 
+    # HTML fallback pages, in case AJAX still omits something
+    print("Merging HTML fallback pages 1-5...")
+    for page in range(1, 6):
+        try:
+            url = f"{CURATOR_URL}?p={page}&numperpage=100"
+            res = session.get(url, headers=HEADERS, timeout=20)
+            if res.status_code != 200:
+                print(f"HTML page {page} status {res.status_code}")
+                break
+            entries = parse_recommendations(BeautifulSoup(res.text, 'html.parser'), (page - 1) * 100)
+            if not entries:
+                print(f"HTML page {page} had no entries.")
+                break
+            found = add_entries(entries, f"HTML page={page}")
+            if found:
+                target_found = True
+            time.sleep(1)
+        except Exception as e:
+            print(f"HTML page {page} error: {e}")
+            break
+
     print(f"Collected {len(ordered)} unique reviews this run")
     print(f"Newest appids found this run: {ordered[:15]}")
+
+    if DIAG_APPID:
+        if target_found:
+            print(f"DIAG FINAL: {DIAG_APPID} was collected.")
+        else:
+            print(f"DIAG FINAL: {DIAG_APPID} was NOT collected.")
+
     return [seen[a] for a in ordered]
 
 def fetch_steam_data(appid):
     session = requests.Session()
-    session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
-    session.cookies.set('birthtime', '283993200', domain='store.steampowered.com', path='/')
+    session = set_session_cookies(session)
     url = f"https://store.steampowered.com/app/{appid}/"
     try:
         res = session.get(url, headers=HEADERS, timeout=15)
@@ -201,7 +267,6 @@ def load_saved_games():
     return saved
 
 def generate_rss(site_games):
-    # site_games is already sorted newest-first; include the latest 50 in the feed
     items = []
     for g in site_games[:50]:
         ts = g.get('first_seen') or 0
@@ -212,6 +277,7 @@ def generate_rss(site_games):
         note = g.get('curator_desc') or ''
         desc_text = f"{g.get('review_type', 'Informational')} review. {note}".strip()
         desc = escape(desc_text)
+
         items.append(
             "    <item>\n"
             f"      <title>{title}</title>\n"
@@ -223,6 +289,7 @@ def generate_rss(site_games):
         )
 
     now_pub = format_datetime(datetime.datetime.now().astimezone())
+
     rss = (
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
         "<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n"
@@ -237,8 +304,10 @@ def generate_rss(site_games):
         "  </channel>\n"
         "</rss>\n"
     )
+
     with open(os.path.join(OUTPUT_DIR, "rss.xml"), "w", encoding="utf-8") as f:
         f.write(rss)
+
     print(f"RSS feed generated with {len(items)} items.")
 
 def build_site(reviews):
@@ -249,22 +318,22 @@ def build_site(reviews):
 
     now = time.time()
     new_count = 0
-    
+
     for idx, r in enumerate(reviews):
         appid = r['appid']
-        
+
         sort_ts = r.get('review_date_ts', 0)
         if sort_ts == 0:
             rank = r.get('review_rank', idx)
             sort_ts = now - (rank * 8640)
-            
+
         if appid in saved:
             saved[appid]['review_type'] = r['review_type']
             saved[appid]['curator_desc'] = r['curator_desc']
             saved[appid]['yt_link'] = r['yt_link']
-            saved[appid]['first_seen'] = sort_ts  
+            saved[appid]['first_seen'] = sort_ts
             saved[appid]['review_rank'] = r.get('review_rank', idx)
-            
+
             if saved[appid].get('name') == 'Unknown Game (Fetch Failed)':
                 print(f"Retrying fetch for previously failed game {appid}...")
                 steam = fetch_steam_data(appid)
@@ -279,16 +348,16 @@ def build_site(reviews):
         else:
             print(f"Fetching NEW game {appid}...")
             steam = fetch_steam_data(appid)
-            if not steam: 
+            if not steam:
                 print(f"WARNING: Could not fetch Steam data for {appid}. Saving basic info anyway!")
                 steam = {
-                    'appid': appid, 'name': 'Unknown Game (Fetch Failed)', 
-                    'description': '<p>Could not load details from Steam.</p>', 
+                    'appid': appid, 'name': 'Unknown Game (Fetch Failed)',
+                    'description': '<p>Could not load details from Steam.</p>',
                     'short_desc': '', 'header_image': f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg",
-                    'screenshots': [], 'tags': [], 'developers': 'Unknown', 
+                    'screenshots': [], 'tags': [], 'developers': 'Unknown',
                     'publishers': 'Unknown', 'release_date': 'Unknown', 'price': 'See Steam'
                 }
-            
+
             steam['appid'] = appid
             steam['review_type'] = r['review_type']
             steam['curator_desc'] = r['curator_desc']
@@ -298,7 +367,7 @@ def build_site(reviews):
             saved[appid] = steam
             new_count += 1
             time.sleep(1.5)
-            
+
         with open(os.path.join(DATA_DIR, f"{appid}.json"), 'w') as f:
             json.dump(saved[appid], f)
 
