@@ -20,8 +20,10 @@
         .filter-btn { padding: 6px 14px; border-radius: 9999px; font-weight: 600; font-size: 0.8rem; background: #1e293b; color: #94a3b8; border: 1px solid #334155; transition: all 0.2s; cursor: pointer; }
         .filter-btn:hover { color: white; border-color: #3b82f6; }
         .filter-active { background: #3b82f6; color: white; border-color: #3b82f6; }
-        .rss-icon { transition: all 0.2s; }
-        .rss-icon:hover { transform: scale(1.1); color: #f97316; }
+        .header-icon { transition: all 0.2s; }
+        .header-icon:hover { transform: scale(1.1); }
+        .rss-icon:hover { color: #f97316; }
+        .extension-icon:hover { color: #4285f4; }
     </style>
 </head>
 <body class="min-h-screen">
@@ -35,11 +37,18 @@
                     </svg>
                     <h1 class="text-3xl font-bold text-blue-400 ml-2">GogetaSuperx Steam Games</h1>
                 </div>
-                <a href="rss.xml" class="rss-icon text-slate-400 hover:text-orange-500" title="Subscribe to RSS Feed" aria-label="RSS Feed">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M6.503 20.752c0 1.794-1.456 3.248-3.251 3.248-1.796 0-3.252-1.454-3.252-3.248 0-1.794 1.456-3.248 3.252-3.248 1.795.001 3.251 1.454 3.251 3.248zm-6.503-12.572v4.811c6.05.062 10.96 4.966 11.022 11.009h4.817c-.062-8.742-7.115-15.783-15.839-15.82zm0-8.18v4.819c12.951.115 23.457 10.607 23.587 23.587h4.413c-.131-15.693-12.719-28.268-28-28.406z"/>
-                    </svg>
-                </a>
+                <div class="flex items-center gap-3">
+                    <a href="https://github.com/gogetasuperx/RSSuperx" target="_blank" rel="noopener" class="header-icon extension-icon text-slate-400" title="Get Chrome Extension for Notifications" aria-label="Chrome Extension">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/>
+                        </svg>
+                    </a>
+                    <a href="rss.xml" class="header-icon rss-icon text-slate-400" title="Subscribe to RSS Feed" aria-label="RSS Feed">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M6.503 20.752c0 1.794-1.456 3.248-3.251 3.248-1.796 0-3.252-1.454-3.252-3.248 0-1.794 1.456-3.248 3.252-3.248 1.795.001 3.251 1.454 3.251 3.248zm-6.503-12.572v4.811c6.05.062 10.96 4.966 11.022 11.009h4.817c-.062-8.742-7.115-15.783-15.839-15.82zm0-8.18v4.819c12.951.115 23.457 10.607 23.587 23.587h4.413c-.131-15.693-12.719-28.268-28-28.406z"/>
+                        </svg>
+                    </a>
+                </div>
             </div>
             <p class="text-slate-400 mt-1">New Free Games Demos Early Access</p>
         </div>
