@@ -18,61 +18,27 @@ HEADERS = {
 DATA_DIR = "data"
 OUTPUT_DIR = "public"
 
+# Diagnostic target. Set to "" once the missing-review problem is confirmed fixed.
 DIAG_APPID = "4439670"
-DIAG_REGIONS = ['US', 'GB', 'DE', 'FR', 'RU', 'JP', 'CN', 'KR', 'BR', 'IN', 'AU', 'CA']
+
+# Steam login cookies, loaded from GitHub Secrets. Empty if not configured.
+STEAM_SESSIONID = os.environ.get('STEAM_SESSIONID', '').strip()
+STEAM_LOGIN_SECURE = os.environ.get('STEAM_LOGIN_SECURE', '').strip()
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def set_session_cookies(session):
+    # Show mature content
     session.cookies.set('mature_content', '1', domain='store.steampowered.com', path='/')
     session.cookies.set('wants_mature_content', '1', domain='store.steampowered.com', path='/')
     session.cookies.set('birthtime', '283993200', domain='store.steampowered.com', path='/')
     session.cookies.set('lastagecheckage', '1-0-1979', domain='store.steampowered.com', path='/')
+    # Authenticated session (only if secrets are configured)
+    if STEAM_SESSIONID and STEAM_LOGIN_SECURE:
+        session.cookies.set('sessionid', STEAM_SESSIONID, domain='.steampowered.com', path='/')
+        session.cookies.set('steamLoginSecure', STEAM_LOGIN_SECURE, domain='.steampowered.com', path='/')
     return session
-
-def extract_appids_from_html(html):
-    soup = BeautifulSoup(html, 'html.parser')
-    appids = []
-    for rec in soup.find_all('div', class_='recommendation'):
-        a = rec.find('a', attrs={'data-ds-appid': True})
-        if a:
-            appids.append(a.get('data-ds-appid'))
-    return appids
-
-def diagnose_regions():
-    print(f"=== MULTI-REGION DIAGNOSTIC: searching for {DIAG_APPID} ===")
-    union = set()
-    found_in = []
-    for cc in DIAG_REGIONS:
-        s = requests.Session()
-        s = set_session_cookies(s)
-        region_appids = []
-        try:
-            for start in [0, 50]:
-                url = f"{CURATOR_URL}ajaxgetfilteredrecommendations/render/"
-                params = {'query': '', 'start': start, 'count': 50, 'sort': 'recent', 'cc': cc}
-                res = s.get(url, params=params, headers=HEADERS, timeout=20)
-                data = res.json()
-                html = data.get('results_html', '')
-                region_appids.extend(extract_appids_from_html(html))
-                time.sleep(0.5)
-        except Exception as e:
-            print(f"cc={cc}: ERROR {e}")
-            continue
-        region_set = set(region_appids)
-        union |= region_set
-        if DIAG_APPID in region_set:
-            found_in.append(cc)
-            print(f"cc={cc}: fetched {len(region_appids)} -> *** TARGET FOUND ***")
-        else:
-            print(f"cc={cc}: fetched {len(region_appids)} -> target not found")
-        time.sleep(0.5)
-    print(f"=== DIAGNOSTIC RESULTS ===")
-    print(f"Union of top-100 across {len(DIAG_REGIONS)} regions: {len(union)} unique appids")
-    print(f"Target {DIAG_APPID} found in regions: {found_in if found_in else 'NONE'}")
-    print(f"Target in union: {DIAG_APPID in union}")
-    print(f"=== END DIAGNOSTIC ===")
 
 def get_yt_id(url):
     if not url: return None
@@ -137,6 +103,10 @@ def fetch_curator_reviews():
 
     session = requests.Session()
     session = set_session_cookies(session)
+
+    auth_active = bool(STEAM_SESSIONID and STEAM_LOGIN_SECURE)
+    print(f"AUTH: login cookies {'ACTIVE - browsing as your Steam account' if auth_active else 'NOT configured (anonymous mode)'}")
+
     try:
         print("Establishing Steam session...")
         session.get(CURATOR_URL, headers=HEADERS, timeout=15)
@@ -157,7 +127,10 @@ def fetch_curator_reviews():
                 break
             data = res.json()
             if start == 0:
-                print(f"AJAX metadata: success={data.get('success')}, total_count={data.get('total_count')}, pagesize={data.get('pagesize')}")
+                total = data.get('total_count')
+                print(f"AJAX metadata: success={data.get('success')}, total_count={total}, pagesize={data.get('pagesize')}")
+                if auth_active and isinstance(total, int) and total < 1990:
+                    print("WARNING: Auth cookies are set but total_count is still low. Cookies may have expired, or Steam may not be applying your account preferences.")
             html = data.get('results_html', '')
             if not html:
                 print("End of reviews reached (empty HTML).")
@@ -197,7 +170,7 @@ def fetch_curator_reviews():
 
     print(f"Collected {len(ordered)} unique reviews this run")
     if DIAG_APPID:
-        print(f"DIAG FINAL: {DIAG_APPID} was {'collected' if target_found else 'NOT collected'} by the main build.")
+        print(f"DIAG FINAL: {DIAG_APPID} was {'COLLECTED - FIX WORKS' if target_found else 'NOT collected'}.")
     return [seen[a] for a in ordered]
 
 def fetch_steam_data(appid):
@@ -370,6 +343,5 @@ def build_site(reviews):
     print(f"Site generation complete. Total games on site: {len(site_games)}")
 
 if __name__ == "__main__":
-    diagnose_regions()
     reviews = fetch_curator_reviews()
     build_site(reviews)
