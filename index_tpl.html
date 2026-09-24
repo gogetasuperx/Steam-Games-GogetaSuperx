@@ -66,7 +66,7 @@
             {% for game in games %}
             <a href="game_{{ game.appid }}.html" class="card block" data-review="{{ game.review_type }}">
                 <div class="relative">
-                    <img src="{{ game.header_image }}" alt="{{ game.name }}" class="w-full h-48 object-cover bg-slate-700" onerror="this.onerror=null;this.src='https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/capsule_616x353.jpg';">
+                    <img src="{{ game.header_image }}" alt="{{ game.name }}" loading="lazy" class="w-full h-48 object-cover bg-slate-700" onerror="this.onerror=null;this.src='https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/capsule_616x353.jpg';">
                     {% if game.review_type == 'Recommended' %}
                         <span class="badge-recommended absolute top-2 right-2 text-xs px-2 py-1 rounded-full font-bold shadow">Recommended</span>
                     {% elif game.review_type == 'Informational' %}
