@@ -6,7 +6,7 @@ https://gogetasuperx.github.io/Steam-Games-GogetaSuperx/
 RSS
 https://gogetasuperx.github.io/Steam-Games-GogetaSuperx/rss.xml
 
-RSSuperx Extension
+RSSuperx Chrome Extension
 https://github.com/gogetasuperx/RSSuperx
 
 Youtube
